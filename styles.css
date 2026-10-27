@@ -912,13 +912,17 @@ body.is-resizing {
   border: 1px solid rgba(148, 163, 184, .1);
   border-radius: 12px;
   font-family: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: #dbeafe;
-  background: rgba(5, 9, 18, .72);
-  tab-size: 2;
-  white-space: pre;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #e2e8f0;
+  background: radial-gradient(circle at top, rgba(59, 130, 246, .12), transparent 55%), linear-gradient(180deg, rgba(15, 23, 42, .95) 0%, rgba(2, 6, 23, .98) 100%);
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow-x: auto;
+}
+
+.code-block .code-line {
+  display: inline;
 }
 
 .code-block::selection,

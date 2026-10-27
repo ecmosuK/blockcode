@@ -53,7 +53,7 @@
   const clearBtn = $('clearBtn');
   const layoutEl = $('layout');
   const codeStatusEl = $('codeStatus');
-  const arduinoCodeEl = $('arduinoCode');
+  const watchCodeEl = $('watchCode');
   const copyCodeBtn = $('copyCodeBtn');
   const downloadCodeBtn = $('downloadCodeBtn');
 
@@ -319,12 +319,7 @@
       view.hidden = !active;
     });
 
-    if (name === 'arduino') {
-      renderArduino();
-    } else {
-      normalizeLayoutSizes();
-    }
-
+    normalizeLayoutSizes();
     scheduleStageSync();
   }
 
@@ -382,7 +377,7 @@
       input.addEventListener('pointerdown', (event) => event.stopPropagation());
       input.addEventListener('input', () => {
         block.params[slot.field] = input.value;
-        renderArduino(block.id);
+        renderWatchCpp(block.id);
       });
       el.appendChild(input);
     });
@@ -557,7 +552,7 @@
       ? 'Snap blocks under the hat block'
       : 'Drag freely. Snap matching edges to connect stacks.';
 
-    renderArduino(focusBlockId);
+    renderWatchCpp(focusBlockId);
   }
 
   /* ---------- Stage sprites ---------- */
@@ -961,7 +956,7 @@
     spriteEl.style.top = state.y + 'px';
     rocketEl.style.transform = 'translate(-50%, -50%) rotate(' + state.heading + 'deg)';
     posEl.textContent =
-      'x ' + Math.round(state.x - size.w / 2) + ' · y ' + Math.round(size.h / 2 - state.y);
+      'x ' + Math.round(state.x - size.w / 2) + ' | y ' + Math.round(size.h / 2 - state.y);
   }
 
   function resetSprite(animate) {
@@ -1051,7 +1046,7 @@
       }
 
       case 'say': {
-        const text = String(block.params.text == null ? '' : block.params.text).slice(0, 80) || '…';
+        const text = String(block.params.text == null ? '' : block.params.text).slice(0, 80) || 'Hello from BlockCode';
         const secs = clamp(toNum(block.params.secs, 1, 10), 0, 10);
         showBubble(text);
         await sleep(secs * 1000, token);
@@ -1071,7 +1066,7 @@
     }
   }
 
-  /* ---------- Arduino code generation ---------- */
+  /* ---------- Watch C++ code generation ---------- */
 
   function cppString(value) {
     return '"' + String(value)
@@ -1087,7 +1082,14 @@
     return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(3)));
   }
 
-  function blockToArduino(block) {
+  function formatFloat(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '0.0f';
+    const rounded = Number(n.toFixed(3));
+    return (Number.isInteger(rounded) ? rounded.toFixed(1) : String(rounded)) + 'f';
+  }
+
+  function blockToWatchCpp(block) {
     const def = DEFS[block.type] || {};
     const action = def.action || block.type;
 
@@ -1099,7 +1101,7 @@
         const steps = toNum(block.params.steps, 50, 1000);
         return [
           '// move ' + formatNumber(steps) + ' steps',
-          'moveSteps(' + formatNumber(steps) + ');'
+          'watch_move(' + formatFloat(steps) + ');'
         ];
       }
 
@@ -1107,28 +1109,27 @@
         const deg = toNum(block.params.deg, 90, 3600);
         return [
           '// turn ' + formatNumber(deg) + ' degrees',
-          'turnDegrees(' + formatNumber(deg) + ');'
+          'watch_turn(' + formatFloat(deg) + ');'
         ];
       }
 
       case 'goto':
-        return ['// go to start', 'goToStart();'];
+        return ['// go to start', 'watch_goto_start();'];
 
       case 'say': {
-        const text = String(block.params.text == null ? '' : block.params.text).slice(0, 80) || '…';
+        const text = String(block.params.text == null ? '' : block.params.text).slice(0, 80) || 'Hello from BlockCode';
         const secs = clamp(toNum(block.params.secs, 1, 10), 0, 10);
         return [
           '// say for ' + formatNumber(secs) + ' s',
-          'sayFor(' + cppString(text) + ', ' + formatNumber(secs) + ');'
+          'watch_say(' + cppString(text) + ', ' + formatFloat(secs) + ');'
         ];
       }
 
       case 'wait': {
         const secs = clamp(toNum(block.params.secs, 1, 10), 0, 10);
-        const ms = Math.round(secs * 1000);
         return [
           '// wait ' + formatNumber(secs) + ' s',
-          'delay(' + ms + ');'
+          'watch_wait(' + formatFloat(secs) + ');'
         ];
       }
 
@@ -1137,154 +1138,269 @@
     }
   }
 
-  function generateArduinoCode() {
-    const size = stageSize();
-    const stageW = Math.max(320, Math.round(size.w));
-    const stageH = Math.max(240, Math.round(size.h));
+  function watchCppActionPrelude() {
+    return [
+      '#include <math.h>',
+      '#include <stdio.h>',
+      '#include <unistd.h>',
+      ''
+    ];
+  }
+
+  function watchCppActionSupport() {
+    return [
+      'static float watch_x = 205.0f;',
+      'static float watch_y = 251.0f;',
+      'static float watch_heading = 0.0f;',
+      '',
+      'static float watch_clamp(float value, float low, float high) {',
+      '  if (value < low) return low;',
+      '  if (value > high) return high;',
+      '  return value;',
+      '}',
+      '',
+      'static void watch_sleep_ms(unsigned long ms) {',
+      '  while (ms > 0) {',
+      '    unsigned long chunk = ms > 1000UL ? 1000UL : ms;',
+      '    usleep((useconds_t)(chunk * 1000UL));',
+      '    ms -= chunk;',
+      '  }',
+      '}',
+      ''
+    ];
+  }
+
+  function watchCppActionCode() {
+    return [
+      'void watch_goto_start(void) {',
+      '  watch_x = 205.0f;',
+      '  watch_y = 251.0f;',
+      '  watch_heading = 0.0f;',
+      '}',
+      '',
+      'void watch_move(float steps) {',
+      '  const float radians = watch_heading * 0.0174532925f;',
+      '  watch_x = watch_clamp(watch_x + cosf(radians) * steps * 1.6f, 40.0f, 370.0f);',
+      '  watch_y = watch_clamp(watch_y + sinf(radians) * steps * 1.6f, 40.0f, 462.0f);',
+      '  printf("[watch] position %.1f, %.1f\\n", watch_x, watch_y);',
+      '}',
+      '',
+      'void watch_turn(float degrees) {',
+      '  watch_heading = fmodf(watch_heading + degrees, 360.0f);',
+      '  if (watch_heading < 0.0f) watch_heading += 360.0f;',
+      '}',
+      '',
+      'void watch_wait(float seconds) {',
+      '  if (seconds > 0.0f) {',
+      '    watch_sleep_ms((unsigned long)(seconds * 1000.0f + 0.5f));',
+      '  }',
+      '}',
+      '',
+      'void watch_say(const char *text, float seconds) {',
+      '  printf("[watch] %s\\n", text);',
+      '  watch_wait(seconds);',
+      '}',
+      ''
+    ];
+  }
+
+  function generateWatchCpp() {
     const lines = [];
     const add = (line) => lines.push(line === undefined ? '' : line);
-    const runnable = [];
 
-    add('// Generated by BlockCode');
-    add('// Simulated stage. Replace updateSprite() with hardware output if needed.');
+    add('// Generated by BlockCode.');
+    add('// ESP-IDF ELF app. Build it to blockcode-app.app.elf, then copy the');
+    add('// ELF to the watch storage and launch it from the watch app menu.');
+    add('// The watch_* functions below are generated stand-ins. Replace their');
+    add('// bodies with display and hardware calls for the real watch.');
     add('');
-    add('#include <math.h>');
-    add('');
-    add('const float STAGE_W = ' + stageW + '.0;');
-    add('const float STAGE_H = ' + stageH + '.0;');
-    add('const float STAGE_PAD = 40.0;');
-    add('');
-    add('float spriteX = STAGE_W / 2.0;');
-    add('float spriteY = STAGE_H / 2.0;');
-    add('float heading = 0.0;');
-    add('');
-    add('float clampFloat(float value, float low, float high) {');
-    add('  if (value < low) return low;');
-    add('  if (value > high) return high;');
-    add('  return value;');
-    add('}');
-    add('');
-    add('void updateSprite() {');
-    add('  // Hook for hardware output. The simulator only updates these variables.');
-    add('}');
-    add('');
-    add('void goToStart() {');
-    add('  spriteX = STAGE_W / 2.0;');
-    add('  spriteY = STAGE_H / 2.0;');
-    add('  heading = 0.0;');
-    add('  updateSprite();');
-    add('  delay(360); // BlockCode animation timing');
-    add('}');
-    add('');
-    add('void moveSteps(float steps) {');
-    add('  float radians = heading * PI / 180.0;');
-    add('  spriteX = clampFloat(spriteX + cos(radians) * steps * 1.6, STAGE_PAD, STAGE_W - STAGE_PAD);');
-    add('  spriteY = clampFloat(spriteY + sin(radians) * steps * 1.6, STAGE_PAD, STAGE_H - STAGE_PAD);');
-    add('  updateSprite();');
-    add('  delay(380); // BlockCode animation timing');
-    add('}');
-    add('');
-    add('void turnDegrees(float degrees) {');
-    add('  heading += degrees;');
-    add('  updateSprite();');
-    add('  delay(330); // BlockCode animation timing');
-    add('}');
-    add('');
-    add('void sayFor(const char *text, float seconds) {');
-    add('  Serial.println(text);');
-    add('  delay((unsigned long)(seconds * 1000.0));');
+
+    watchCppActionPrelude().forEach((line) => add(line));
+    watchCppActionSupport().forEach((line) => add(line));
+    add('extern "C" {');
+    watchCppActionCode().forEach((line) => add(line));
     add('}');
     add('');
 
-    if (!workspace.length) {
-      add('// No blocks yet. Build a stack in Block Code.');
-      add('');
-    }
-
+    const entryNames = [];
     workspace.forEach((script, scriptIndex) => {
       if (!script.length) return;
       const name = 'stack' + (scriptIndex + 1);
       const hat = isHat(script[0]);
-      if (hat) runnable.push(name);
+      if (hat) entryNames.push(name);
 
-      add('// Stack ' + (scriptIndex + 1) + ': ' +
-        (hat ? 'runs at program start' : 'not called because it has no hat block'));
-      add('void ' + name + '() {');
+      add(hat
+        ? '// Stack ' + (scriptIndex + 1) + ': entry point'
+        : '// Stack ' + (scriptIndex + 1) + ': not run (no hat block)');
+      add('static void ' + name + '(void) {');
       script.forEach((block) => {
-        blockToArduino(block).forEach((line) => add('  ' + line));
+        blockToWatchCpp(block).forEach((line) => add('  ' + line));
       });
       add('}');
       add('');
     });
 
-    add('void runProgram() {');
-    if (runnable.length) {
-      runnable.forEach((name) => add('  ' + name + '();'));
+    add('extern "C" int main(int argc, char **argv) {');
+    add('  (void)argc;');
+    add('  (void)argv;');
+    if (entryNames.length) {
+      entryNames.forEach((name) => add('  ' + name + '();'));
+    } else {
+      add('  // Add a "when clicked" block at the top of a stack to run it.');
+    }
+    add('  return 0;');
+    add('}');
+    add('');
+
+    return lines.join('\n');
+  }
+
+  function generateWatchCppPreview() {
+    const lines = [];
+    const add = (line) => lines.push(line === undefined ? '' : line);
+    const blockCount = workspace.reduce((total, script) => total + script.length, 0);
+    const entryNames = [];
+
+    add('// Preview only. Copy or Download adds the full C++ app file.');
+    add('');
+
+    if (!blockCount) {
+      add('// No blocks yet');
+      return lines.join('\n');
+    }
+
+    add('// Block action functions:');
+    watchCppActionCode().forEach((line) => add(line));
+
+    workspace.forEach((script, scriptIndex) => {
+      if (!script.length) return;
+      const name = 'stack' + (scriptIndex + 1);
+      const hat = isHat(script[0]);
+      if (hat) entryNames.push(name);
+
+      add('// Stack ' + (scriptIndex + 1) + ': ' +
+        (hat ? 'runs when started' : 'not used (add a "when clicked" block)'));
+      add('static void ' + name + '(void) {');
+      script.forEach((block) => {
+        blockToWatchCpp(block).forEach((line) => add('  ' + line));
+      });
+      add('}');
+      add('');
+    });
+
+    add('int main(int argc, char **argv) {');
+    if (entryNames.length) {
+      entryNames.forEach((name) => add('  ' + name + '();'));
     } else {
       add('  // Add a "when clicked" block at the top of a stack to run it.');
     }
     add('}');
     add('');
-    add('void setup() {');
-    add('  Serial.begin(9600);');
-    add('  runProgram();');
-    add('}');
-    add('');
-    add('void loop() {');
-    add('  // Runs once from setup(). Add repeating behavior here if needed.');
-    add('}');
 
     return lines.join('\n');
   }
 
-  function scrollArduinoToFocus(focusBlockId) {
-    if (!focusBlockId || !arduinoCodeEl) return;
+  function scrollWatchToFocus(focusBlockId) {
+    try {
+      if (!focusBlockId || !watchCodeEl) return;
 
-    let scriptIndex = workspace.findIndex((script) =>
-      script.some((block) => block.id === focusBlockId)
-    );
+      let scriptIndex = workspace.findIndex((script) =>
+        script.some((block) => block.id === focusBlockId)
+      );
     if (scriptIndex < 0) scriptIndex = workspace.length ? 0 : -1;
 
     const marker = scriptIndex >= 0
       ? '// Stack ' + (scriptIndex + 1) + ':'
       : '// No blocks yet';
 
-    const scroller = arduinoCodeEl.closest('.code-scroll');
+    const scroller = watchCodeEl.closest('.code-scroll');
     if (!scroller || scroller.clientHeight <= 0) return;
 
-    const node = arduinoCodeEl.firstChild;
-    if (!node || node.nodeType !== Node.TEXT_NODE) return;
-
-    const index = arduinoCodeEl.textContent.indexOf(marker);
+    const fullText = watchCodeEl.textContent || '';
+    const index = fullText.indexOf(marker);
     if (index < 0) return;
 
-    const range = document.createRange();
-    range.setStart(node, index);
-    range.setEnd(node, index + marker.length);
+    const spans = watchCodeEl.querySelectorAll('.code-line');
+    if (!spans.length) return;
 
-    const markerRect = range.getBoundingClientRect();
-    const scrollerRect = scroller.getBoundingClientRect();
-    const top = markerRect.top - scrollerRect.top;
-    const margin = 24;
-
-    if (top < margin || top > scroller.clientHeight - margin) {
-      scroller.scrollTop += top - margin;
+    let accumulated = 0;
+    for (let i = 0; i < spans.length; i++) {
+      const t = spans[i].textContent || '';
+      if (index >= accumulated && index < accumulated + t.length + 1) {
+        const rect = spans[i].getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        const top = rect.top - scrollerRect.top;
+        const margin = 40;
+        if (top < margin || top > scroller.clientHeight - margin) {
+          scroller.scrollTop = Math.max(0, top - margin);
+        } else {
+          scroller.scrollTop = Math.max(0, top - margin);
+        }
+        return;
+      }
+      accumulated += t.length + 1;
+    }
+    } catch (e) {
+      return;
     }
   }
 
-  function renderArduino(focusBlockId) {
-    if (!arduinoCodeEl) return;
+  function renderWatchCpp(focusBlockId) {
+    if (!watchCodeEl) return;
 
-    const code = generateArduinoCode();
-    arduinoCodeEl.textContent = code;
+    const code = generateWatchCppPreview();
+    watchCodeEl.textContent = '';
+
+    const pre = watchCodeEl.parentElement;
+    pre.classList.add('code-block');
+
+    const lines = code.split('\n');
+    const colors = {
+      event: '#f0b32e',
+      motion: '#3f7bf0',
+      looks: '#a855f7',
+      control: '#f97316',
+      others: '#94a3b8'
+    };
+
+    lines.forEach((line) => {
+      const span = document.createElement('span');
+      span.className = 'code-line';
+      span.textContent = line;
+      if (!line.trim() || line.trim().startsWith('//')) {
+        span.style.color = colors.others;
+      } else if (line.includes('stack')) {
+        span.style.color = '#cbd5e1';
+      } else {
+        let cat = colors.others;
+        if (line.includes('watch_move') || line.includes('watch_turn') || line.includes('watch_goto_start')) {
+          cat = colors.motion;
+        } else if (line.includes('watch_say')) {
+          cat = colors.looks;
+        } else if (line.includes('watch_wait')) {
+          cat = colors.control;
+        }
+        span.style.color = cat === colors.others && /\b(static\s+)?(void|int)\s+\w+\s*\(/.test(line)
+          ? '#38bdf8'
+          : cat;
+      }
+      watchCodeEl.appendChild(span);
+      watchCodeEl.appendChild(document.createTextNode('\n'));
+    });
 
     const blockCount = workspace.reduce((total, script) => total + script.length, 0);
-    codeStatusEl.textContent = blockCount
-      ? blockCount + ' block' + (blockCount === 1 ? '' : 's') +
-        ' · ' + code.split('\n').length + ' lines'
-      : 'No blocks yet';
+    if (codeStatusEl) {
+      codeStatusEl.textContent = blockCount
+        ? blockCount + ' block' + (blockCount === 1 ? '' : 's') +
+          ' | ' + lines.length + ' lines'
+        : 'No blocks yet';
+    }
 
-    scrollArduinoToFocus(focusBlockId);
+    try {
+      scrollWatchToFocus(focusBlockId);
+    } catch (e) {
+      // ignore
+    }
   }
 
   function fallbackCopyText(text) {
@@ -1307,8 +1423,8 @@
     return copied;
   }
 
-  async function copyArduinoCode() {
-    const text = generateArduinoCode();
+  async function copyWatchCpp() {
+    const text = generateWatchCpp();
     let copied = false;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -1321,21 +1437,21 @@
     }
 
     if (!copied) copied = fallbackCopyText(text);
-    showToast(copied ? 'Arduino code copied.' : 'Could not copy the Arduino code.');
+    showToast(copied ? 'Watch C++ copied.' : 'Could not copy the Watch C++.');
   }
 
-  function downloadArduinoCode() {
-    const blob = new Blob([generateArduinoCode()], { type: 'text/plain;charset=utf-8' });
+  function downloadWatchCpp() {
+    const blob = new Blob([generateWatchCpp()], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
 
     link.href = url;
-    link.download = 'blockcode.ino';
+    link.download = 'blockcode-app.cpp';
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-    showToast('Downloaded blockcode.ino.');
+    showToast('Downloaded blockcode-app.cpp.');
   }
 
   function setRunning(running) {
@@ -1343,7 +1459,7 @@
     runBtn.disabled = running;
     stopBtn.disabled = !running;
     runBtn.classList.toggle('is-running', running);
-    runBtn.textContent = running ? '▶ Running…' : '▶ Run';
+    runBtn.textContent = running ? 'Running...' : 'Run';
   }
 
   function clearActive() {
@@ -1561,8 +1677,8 @@
     deleteSelectedBlocks();
   });
 
-  copyCodeBtn.addEventListener('click', copyArduinoCode);
-  downloadCodeBtn.addEventListener('click', downloadArduinoCode);
+  copyCodeBtn.addEventListener('click', copyWatchCpp);
+  downloadCodeBtn.addEventListener('click', downloadWatchCpp);
 
   window.addEventListener('resize', () => {
     normalizeLayoutSizes();
