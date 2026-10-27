@@ -17,6 +17,7 @@
   const PAD = 40;
   const SNAP_DISTANCE = 30;
   const SNAP_LEFT = 64;
+  const STACK_OVERLAP = 6.5;
   const sleepers = new Set();
 
   let uid = 0;
@@ -95,6 +96,11 @@
   }
 
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+  const snapToDevicePixel = (value) => {
+    const ratio = window.devicePixelRatio || 1;
+    return Math.round(value * ratio) / ratio;
+  };
 
   const toNum = (value, fallback, limit) => {
     const n = parseFloat(value);
@@ -376,7 +382,7 @@
       input.addEventListener('pointerdown', (event) => event.stopPropagation());
       input.addEventListener('input', () => {
         block.params[slot.field] = input.value;
-        renderArduino();
+        renderArduino(block.id);
       });
       el.appendChild(input);
     });
@@ -454,20 +460,24 @@
 
     let removed = 0;
     workspace = workspace.map((script) => {
-      return script.filter((block) => {
+      const next = script.filter((block) => {
         if (!selectedBlockIds.has(block.id)) return true;
         removed += 1;
         return false;
       });
+      next.x = script.x;
+      next.y = script.y;
+      return next;
     }).filter((script) => script.length > 0);
 
+    const focusBlockId = selectedBlockIds.values().next().value || null;
     isolatedBlockId = null;
     selectedBlockIds.clear();
     lastBlockClick = null;
 
     if (!removed) return false;
 
-    renderWorkspace();
+    renderWorkspace(focusBlockId);
     showToast(removed + (removed === 1 ? ' block deleted.' : ' blocks deleted.'));
     return true;
   }
@@ -484,7 +494,43 @@
     return { start: blockIndex, blocks: script.slice(blockIndex), isolated: false };
   }
 
-  function renderWorkspace() {
+  function makeScript(blocks, x, y) {
+    const script = blocks.slice();
+    script.x = x;
+    script.y = y;
+    return script;
+  }
+
+  function snapScriptPosition(x, y) {
+    const rect = scriptsEl.getBoundingClientRect();
+    return {
+      x: snapToDevicePixel(rect.left + x) - rect.left,
+      y: snapToDevicePixel(rect.top + y) - rect.top
+    };
+  }
+
+  function defaultScriptPosition() {
+    const offset = 24 + (workspace.length % 5) * 20;
+    return snapScriptPosition(offset, offset);
+  }
+
+  function freeDropPosition(d) {
+    const rect = scriptsEl.getBoundingClientRect();
+    const width = d.groupRect.right - d.groupRect.left;
+    const height = d.groupRect.bottom - d.groupRect.top;
+    const maxX = Math.max(0, rect.width - width);
+    const maxY = Math.max(0, rect.height - height);
+    const pos = snapScriptPosition(
+      clamp(d.lastX - d.offsetX - rect.left, 0, maxX),
+      clamp(d.lastY - d.offsetY - rect.top, 0, maxY)
+    );
+    return {
+      x: clamp(pos.x, 0, maxX),
+      y: clamp(pos.y, 0, maxY)
+    };
+  }
+
+  function renderWorkspace(focusBlockId) {
     scriptsEl.innerHTML = '';
 
     workspace.forEach((script, scriptIndex) => {
@@ -492,6 +538,12 @@
       const column = document.createElement('div');
       column.className = 'script';
       column.dataset.script = scriptIndex;
+      const pos = snapScriptPosition(
+        Number.isFinite(script.x) ? script.x : 24,
+        Number.isFinite(script.y) ? script.y : 24
+      );
+      column.style.left = pos.x + 'px';
+      column.style.top = pos.y + 'px';
       script.forEach((block, blockIndex) => {
         const el = renderBlock(block, scriptIndex, blockIndex);
         if (el) column.appendChild(el);
@@ -503,9 +555,9 @@
     emptyEl.classList.toggle('is-hidden', !isEmpty);
     hintEl.textContent = isEmpty
       ? 'Snap blocks under the hat block'
-      : 'Drag to arrange · drop in empty space for a new stack';
+      : 'Drag freely. Snap matching edges to connect stacks.';
 
-    renderArduino();
+    renderArduino(focusBlockId);
   }
 
   /* ---------- Stage sprites ---------- */
@@ -611,7 +663,10 @@
       lastY: event.clientY,
       moved: false,
       target: null,
-      inside: false
+      inside: false,
+      previewHidden: [],
+      previewShifted: [],
+      previewEl: null
     };
 
     document.body.classList.add('is-dragging');
@@ -648,7 +703,98 @@
     updateDropTarget(event.clientX, event.clientY);
   }
 
+  function ensurePreviewEl() {
+    if (drag.previewEl) return drag.previewEl;
+
+    const el = document.createElement('div');
+    el.className = 'snap-preview';
+    el.style.width = (drag.groupRect.right - drag.groupRect.left) + 'px';
+
+    drag.sourceEls.forEach((source) => {
+      const clone = source.cloneNode(true);
+      clone.classList.remove('is-dragging', 'is-selected', 'is-active');
+      clone.removeAttribute('data-script');
+      clone.removeAttribute('data-index');
+      clone.querySelectorAll('input').forEach((input) => {
+        input.readOnly = true;
+        input.tabIndex = -1;
+      });
+      el.appendChild(clone);
+    });
+
+    document.body.appendChild(el);
+    drag.previewEl = el;
+    return el;
+  }
+
+  function clearPreview(remove) {
+    if (!drag) return;
+    (drag.previewHidden || []).forEach((el) => {
+      el.style.display = '';
+    });
+    (drag.previewShifted || []).forEach((el) => {
+      el.style.transform = '';
+    });
+    drag.previewHidden = [];
+    drag.previewShifted = [];
+
+    if (drag.previewEl) {
+      if (remove) {
+        drag.previewEl.remove();
+        drag.previewEl = null;
+      } else {
+        drag.previewEl.style.display = 'none';
+      }
+    }
+  }
+
+  function applyPreview(best) {
+    const groupHeight = drag.groupRect.bottom - drag.groupRect.top;
+    const push = Math.max(0, groupHeight - STACK_OVERLAP);
+    const sameScript = Boolean(drag.from && drag.from.si === best.si);
+    const targetEl = best.el;
+    const preview = ensurePreviewEl();
+
+    if (sameScript) {
+      drag.sourceEls.forEach((el) => {
+        if (el.classList.contains('is-dragging')) {
+          el.style.display = 'none';
+          drag.previewHidden.push(el);
+        }
+      });
+    }
+
+    const rect = targetEl.getBoundingClientRect();
+    const previewTop = best.before ? rect.top : rect.bottom - STACK_OVERLAP;
+    const shifted = [];
+
+    if (best.before) {
+      for (let el = targetEl; el; el = el.nextElementSibling) {
+        if (el.classList.contains('block') && !el.classList.contains('is-dragging')) {
+          shifted.push(el);
+        }
+      }
+    } else {
+      for (let el = targetEl.nextElementSibling; el; el = el.nextElementSibling) {
+        if (el.classList.contains('block') && !el.classList.contains('is-dragging')) {
+          shifted.push(el);
+        }
+      }
+    }
+
+    shifted.forEach((el) => {
+      el.style.transform = 'translateY(' + push + 'px)';
+    });
+
+    drag.previewShifted = shifted;
+    preview.style.display = 'flex';
+    preview.style.left = rect.left + 'px';
+    preview.style.top = previewTop + 'px';
+  }
+
   function updateDropTarget(x, y) {
+    clearPreview();
+
     const canvasRect = canvasEl.getBoundingClientRect();
     drag.inside = x >= canvasRect.left && x <= canvasRect.right &&
       y >= canvasRect.top && y <= canvasRect.bottom;
@@ -689,18 +835,16 @@
       best = {
         si: si,
         index: bi + (before ? 0 : 1),
-        left: rect.left,
-        top: before ? rect.top - 2 : rect.bottom - 8,
-        width: rect.width
+        before: before,
+        el: el
       };
     });
 
     if (best) {
       drag.target = { si: best.si, index: best.index, append: false };
-      showDropLine(best.left, best.top, best.width);
+      applyPreview(best);
     } else {
       drag.target = { append: true };
-      showDropLine(x - 80, y, 160);
     }
   }
 
@@ -711,6 +855,7 @@
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
 
+    clearPreview(true);
     const d = drag;
     drag = null;
 
@@ -725,6 +870,7 @@
     const dragBlocks = d.groupBlocks || [d.block];
     const dragCount = dragBlocks.length;
     const overPalette = Boolean(d.from) && d.moved && isOverPalette(d.lastX, d.lastY);
+    const focusBlockId = dragBlocks[0] ? dragBlocks[0].id : null;
     let changed = false;
 
     if (!d.moved && d.from) {
@@ -747,7 +893,8 @@
 
     if (!d.moved) {
       if (!d.from) {
-        workspace.push([d.block]);
+        const pos = defaultScriptPosition();
+        workspace.push(makeScript([d.block], pos.x, pos.y));
         changed = true;
       }
     } else if (overPalette) {
@@ -762,10 +909,11 @@
       showToast(dragCount + (dragCount === 1 ? ' block deleted.' : ' blocks deleted.'));
     } else if (d.inside && d.target) {
       if (d.target.append) {
+        const pos = freeDropPosition(d);
         if (d.from && workspace[d.from.si]) {
           workspace[d.from.si].splice(d.from.bi, dragCount);
         }
-        workspace.push(dragBlocks.slice());
+        workspace.push(makeScript(dragBlocks, pos.x, pos.y));
       } else {
         let si = d.target.si;
         let index = d.target.index;
@@ -783,17 +931,10 @@
     }
 
     if (changed) {
-      renderWorkspace();
+      renderWorkspace(focusBlockId);
     } else {
       emptyEl.classList.toggle('is-hidden', workspace.length > 0);
     }
-  }
-
-  function showDropLine(left, top, width) {
-    dropLine.style.display = 'block';
-    dropLine.style.left = left + 'px';
-    dropLine.style.top = top + 'px';
-    dropLine.style.width = Math.max(60, width) + 'px';
   }
 
   function hideDropLine() {
@@ -1096,7 +1237,42 @@
     return lines.join('\n');
   }
 
-  function renderArduino() {
+  function scrollArduinoToFocus(focusBlockId) {
+    if (!focusBlockId || !arduinoCodeEl) return;
+
+    let scriptIndex = workspace.findIndex((script) =>
+      script.some((block) => block.id === focusBlockId)
+    );
+    if (scriptIndex < 0) scriptIndex = workspace.length ? 0 : -1;
+
+    const marker = scriptIndex >= 0
+      ? '// Stack ' + (scriptIndex + 1) + ':'
+      : '// No blocks yet';
+
+    const scroller = arduinoCodeEl.closest('.code-scroll');
+    if (!scroller || scroller.clientHeight <= 0) return;
+
+    const node = arduinoCodeEl.firstChild;
+    if (!node || node.nodeType !== Node.TEXT_NODE) return;
+
+    const index = arduinoCodeEl.textContent.indexOf(marker);
+    if (index < 0) return;
+
+    const range = document.createRange();
+    range.setStart(node, index);
+    range.setEnd(node, index + marker.length);
+
+    const markerRect = range.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const top = markerRect.top - scrollerRect.top;
+    const margin = 24;
+
+    if (top < margin || top > scroller.clientHeight - margin) {
+      scroller.scrollTop += top - margin;
+    }
+  }
+
+  function renderArduino(focusBlockId) {
     if (!arduinoCodeEl) return;
 
     const code = generateArduinoCode();
@@ -1107,6 +1283,8 @@
       ? blockCount + ' block' + (blockCount === 1 ? '' : 's') +
         ' · ' + code.split('\n').length + ' lines'
       : 'No blocks yet';
+
+    scrollArduinoToFocus(focusBlockId);
   }
 
   function fallbackCopyText(text) {
@@ -1349,7 +1527,7 @@
     isolatedBlockId = null;
     selectedBlockIds.clear();
     workspace = [];
-    renderWorkspace();
+    renderWorkspace('empty');
     resetSprite(true);
     showToast('Workspace cleared.');
   });
@@ -1402,7 +1580,7 @@
     makeBlock('wait', { secs: 0.4 })
   ].filter(Boolean);
 
-  let workspace = initialScript.length ? [initialScript] : [];
+  let workspace = initialScript.length ? [makeScript(initialScript, 24, 24)] : [];
 
   loadLayoutState();
   applyLayoutState();

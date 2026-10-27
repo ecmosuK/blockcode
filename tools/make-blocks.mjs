@@ -9,10 +9,25 @@ const outDir = process.argv[2]
 mkdirSync(outDir, { recursive: true });
 
 const colors = {
-  event: { c1: '#ffd97a', c2: '#f0b32e', fg: '#3a2500' },
-  motion: { c1: '#6aa5ff', c2: '#3f7bf0', fg: '#ffffff' },
-  looks: { c1: '#c58bff', c2: '#a855f7', fg: '#ffffff' },
-  control: { c1: '#ffa45b', c2: '#f97316', fg: '#2c1000' }
+  event: { fill: '#f0b32e', fg: '#3a2500' },
+  motion: { fill: '#3f7bf0', fg: '#ffffff' },
+  looks: { fill: '#a855f7', fg: '#ffffff' },
+  control: { fill: '#f97316', fg: '#2c1000' }
+};
+
+const connector = {
+  x: 16,
+  width: 20,
+  depth: 6,
+  shoulder: 3
+};
+
+const darken = (hex, factor = .8) => {
+  const value = parseInt(hex.slice(1), 16);
+  const r = Math.round(((value >> 16) & 255) * factor);
+  const g = Math.round(((value >> 8) & 255) * factor);
+  const b = Math.round((value & 255) * factor);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 };
 
 const icons = {
@@ -31,7 +46,7 @@ const blocks = [
     width: 160,
     height: 52,
     bodyHeight: 46,
-    topRadius: 18,
+    topRadius: 10,
     icon: 'flag',
     iconX: 16,
     iconY: 15.5,
@@ -44,7 +59,7 @@ const blocks = [
     width: 190,
     height: 44,
     bodyHeight: 38,
-    topRadius: 10,
+    topRadius: 4,
     notch: true,
     icon: 'move',
     iconX: 16,
@@ -61,7 +76,7 @@ const blocks = [
     width: 158,
     height: 44,
     bodyHeight: 38,
-    topRadius: 10,
+    topRadius: 4,
     notch: true,
     icon: 'turn',
     iconX: 16,
@@ -78,7 +93,7 @@ const blocks = [
     width: 142,
     height: 44,
     bodyHeight: 38,
-    topRadius: 10,
+    topRadius: 4,
     notch: true,
     icon: 'goto',
     iconX: 16,
@@ -92,7 +107,7 @@ const blocks = [
     width: 252,
     height: 44,
     bodyHeight: 38,
-    topRadius: 10,
+    topRadius: 4,
     notch: true,
     icon: 'say',
     iconX: 16,
@@ -113,7 +128,7 @@ const blocks = [
     width: 158,
     height: 44,
     bodyHeight: 38,
-    topRadius: 10,
+    topRadius: 4,
     notch: true,
     icon: 'wait',
     iconX: 16,
@@ -128,9 +143,10 @@ const blocks = [
 
 function bodyPath(w, b, topRadius, notch) {
   const r = topRadius;
-  const bottom = 10;
+  const bottom = 4;
+  const { x, width, depth, shoulder } = connector;
   const top = notch
-    ? `M${r} 0 H23 V1 Q23 5 27 5 H39 Q43 5 43 1 V0 H${w - r}`
+    ? `M${r} 0 H${x} V1 Q${x} ${depth} ${x + shoulder} ${depth} H${x + width - shoulder} Q${x + width} ${depth} ${x + width} 1 V0 H${w - r}`
     : `M${r} 0 H${w - r}`;
   return `${top} Q${w} 0 ${w} ${r} V${b - bottom} Q${w} ${b} ${w - bottom} ${b} H${bottom} Q0 ${b} 0 ${b - bottom} V${r} Q0 0 ${r} 0 Z`;
 }
@@ -142,14 +158,21 @@ const escapeXml = (value) => value
   .replace(/"/g, '&quot;');
 
 for (const block of blocks) {
-  const { c1, c2, fg } = colors[block.category];
+  const { fill, fg } = colors[block.category];
+  const outline = darken(fill);
   const body = bodyPath(block.width, block.bodyHeight, block.topRadius, block.notch);
-  const tabY = block.bodyHeight - 4;
-  const tabH = block.height - tabY;
+  const outlineWidth = 2;
+  const { x: tabX, width: tabW, depth: tabDepth, shoulder: tabShoulder } = connector;
+  const tabTop = block.bodyHeight - 4;
+  const tabBottom = block.bodyHeight + tabDepth;
+  const tabJoin = block.bodyHeight + 1;
+  const tabShape = `M${tabX} ${tabTop} H${tabX + tabW} V${tabJoin} Q${tabX + tabW} ${tabBottom} ${tabX + tabW - tabShoulder} ${tabBottom} H${tabX + tabShoulder} Q${tabX} ${tabBottom} ${tabX} ${tabJoin} V${tabTop} Z`;
+  const tabOutlineTop = block.bodyHeight - outlineWidth;
+  const tabOutline = `M${tabX} ${tabOutlineTop} V${tabJoin} Q${tabX} ${tabBottom} ${tabX + tabShoulder} ${tabBottom} H${tabX + tabW - tabShoulder} Q${tabX + tabW} ${tabBottom} ${tabX + tabW} ${tabJoin} V${tabOutlineTop}`;
   const icon = icons[block.icon].replaceAll('COLOR', fg);
 
   const pills = block.slots.map((slot) =>
-    `  <rect x="${slot.x}" y="${slot.y}" width="${slot.w}" height="${slot.h}" rx="6" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".08"/>`
+    `  <rect x="${slot.x}" y="${slot.y}" width="${slot.w}" height="${slot.h}" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>`
   ).join('\n');
 
   const texts = block.texts.map((text) =>
@@ -158,13 +181,13 @@ for (const block of blocks) {
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${block.width}" height="${block.height}" viewBox="0 0 ${block.width} ${block.height}" fill="none">
   <defs>
-    <linearGradient id="blockGrad" x1="0" y1="0" x2="0" y2="${block.bodyHeight}" gradientUnits="userSpaceOnUse">
-      <stop stop-color="${c1}"/>
-      <stop offset="1" stop-color="${c2}"/>
-    </linearGradient>
+    <clipPath id="blockClip"><path d="${body}"/></clipPath>
+    <clipPath id="tabClip"><path d="${tabShape}"/></clipPath>
   </defs>
-  <path d="${body}" fill="url(#blockGrad)"/>
-  <rect x="22" y="${tabY}" width="22" height="${tabH}" rx="4" fill="url(#blockGrad)"/>
+  <path d="${body}" fill="${fill}"/>
+  <rect x="0" y="${block.bodyHeight - outlineWidth}" width="${block.width}" height="${outlineWidth}" fill="${outline}" clip-path="url(#blockClip)"/>
+  <path d="${tabShape}" fill="${fill}"/>
+  <path d="${tabOutline}" fill="none" stroke="${outline}" stroke-width="${outlineWidth * 2}" clip-path="url(#tabClip)"/>
 ${pills}
   <g transform="translate(${block.iconX} ${block.iconY}) scale(.625)">
     ${icon}
