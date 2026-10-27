@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <defs>
+    <radialGradient id="domeGrad" cx=".45" cy=".3" r=".8">
+      <stop offset="0" stop-color="#e0f2fe"/>
+      <stop offset=".55" stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#0369a1"/>
+    </radialGradient>
+    <linearGradient id="saucerGrad" x1="6" y1="34" x2="66" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cbd5e1"/>
+      <stop offset=".5" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#64748b"/>
+    </linearGradient>
+    <radialGradient id="glowGrad" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="36" cy="48" rx="30" ry="18" fill="url(#glowGrad)"/>
+  <path d="M18 38c0-12 8-20 18-20s18 8 18 20" fill="url(#domeGrad)" stroke="#bae6fd" stroke-width="1.5"/>
+  <ellipse cx="36" cy="38" rx="30" ry="10" fill="url(#saucerGrad)" stroke="#f1f5f9" stroke-width="1.5"/>
+  <ellipse cx="36" cy="38" rx="12" ry="3.4" fill="#0f172a" opacity=".45"/>
+  <circle cx="20" cy="40" r="2.1" fill="#fde047"/>
+  <circle cx="29" cy="44" r="2.1" fill="#f472b6"/>
+  <circle cx="43" cy="44" r="2.1" fill="#fde047"/>
+  <circle cx="52" cy="40" r="2.1" fill="#f472b6"/>
+</svg>
