@@ -15,15 +15,23 @@
   });
 
   const PAD = 40;
+  const SNAP_DISTANCE = 30;
+  const SNAP_LEFT = 64;
   const sleepers = new Set();
 
   let uid = 0;
   let drag = null;
   let toastTimer = null;
+  let lastBlockClick = null;
+  let suppressCanvasClickUntil = 0;
+  let isolatedBlockId = null;
+  const selectedBlockIds = new Set();
+  const DOUBLE_CLICK_MS = 500;
 
   const state = { running: false, token: 0, x: 0, y: 0, heading: 0 };
 
   const $ = (id) => document.getElementById(id);
+  const toolboxEl = $('panelToolbox');
   const paletteEl = $('palette');
   const scriptsEl = $('scripts');
   const canvasEl = $('canvas');
@@ -329,6 +337,9 @@
     el.dataset.type = block.type;
     el.style.width = def.width + 'px';
     el.style.height = def.height + 'px';
+    if (!palette && selectedBlockIds.has(block.id)) {
+      el.classList.add('is-selected');
+    }
     if (!palette) {
       el.dataset.script = scriptIndex;
       el.dataset.index = blockIndex;
@@ -404,6 +415,75 @@
     });
   }
 
+  function updateSelectionClasses() {
+    scriptsEl.querySelectorAll('.block').forEach((el) => {
+      el.classList.toggle('is-selected', selectedBlockIds.has(el.dataset.id));
+    });
+  }
+
+  function selectBlockRange(scriptIndex, blockIndex) {
+    const script = workspace[scriptIndex] || [];
+
+    isolatedBlockId = null;
+    selectedBlockIds.clear();
+    script.slice(blockIndex).forEach((block) => selectedBlockIds.add(block.id));
+    updateSelectionClasses();
+  }
+
+  function selectBlockOnly(block) {
+    isolatedBlockId = block ? block.id : null;
+    selectedBlockIds.clear();
+    if (block) selectedBlockIds.add(block.id);
+    updateSelectionClasses();
+  }
+
+  function clearSelection() {
+    isolatedBlockId = null;
+    selectedBlockIds.clear();
+    lastBlockClick = null;
+    updateSelectionClasses();
+  }
+
+  function isOverPalette(x, y) {
+    const rect = toolboxEl.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function deleteSelectedBlocks() {
+    if (!selectedBlockIds.size) return false;
+
+    let removed = 0;
+    workspace = workspace.map((script) => {
+      return script.filter((block) => {
+        if (!selectedBlockIds.has(block.id)) return true;
+        removed += 1;
+        return false;
+      });
+    }).filter((script) => script.length > 0);
+
+    isolatedBlockId = null;
+    selectedBlockIds.clear();
+    lastBlockClick = null;
+
+    if (!removed) return false;
+
+    renderWorkspace();
+    showToast(removed + (removed === 1 ? ' block deleted.' : ' blocks deleted.'));
+    return true;
+  }
+
+  function dragGroupAt(scriptIndex, blockIndex) {
+    const script = workspace[scriptIndex] || [];
+    const block = script[blockIndex];
+
+    if (!block) return null;
+    if (isolatedBlockId === block.id) {
+      return { start: blockIndex, blocks: [block], isolated: true };
+    }
+
+    return { start: blockIndex, blocks: script.slice(blockIndex), isolated: false };
+  }
+
   function renderWorkspace() {
     scriptsEl.innerHTML = '';
 
@@ -466,7 +546,7 @@
 
   /* ---------- Dragging ---------- */
 
-  function startDrag(event, block, from, sourceEl) {
+  function startDrag(event, block, from, sourceEl, group) {
     if (!block) return;
     if (event.button !== undefined && event.button !== 0) return;
     if (event.target.closest('input')) return;
@@ -478,26 +558,57 @@
 
     event.preventDefault();
 
-    const rect = sourceEl.getBoundingClientRect();
-    const ghost = sourceEl.cloneNode(true);
-    ghost.classList.add('is-ghost');
-    ghost.classList.remove('is-dragging');
-    ghost.style.width = rect.width + 'px';
-    ghost.style.left = rect.left + 'px';
-    ghost.style.top = rect.top + 'px';
+    const dragBlocks = group ? group.blocks : [block];
+    const sourceEls = dragBlocks.map((item) => {
+      return scriptsEl.querySelector('.block[data-id="' + item.id + '"]');
+    }).filter(Boolean);
+
+    if (!sourceEls.length) sourceEls.push(sourceEl);
+
+    const rects = sourceEls.map((el) => el.getBoundingClientRect());
+    const left = Math.min.apply(null, rects.map((rect) => rect.left));
+    const top = Math.min.apply(null, rects.map((rect) => rect.top));
+    const right = Math.max.apply(null, rects.map((rect) => rect.right));
+    const bottom = Math.max.apply(null, rects.map((rect) => rect.bottom));
+
+    let ghost = null;
+    if (dragBlocks.length > 1) {
+      ghost = document.createElement('div');
+      ghost.className = 'drag-ghost';
+      ghost.style.width = (right - left) + 'px';
+      sourceEls.forEach((el) => {
+        const clone = el.cloneNode(true);
+        clone.classList.remove('is-dragging', 'is-selected');
+        ghost.appendChild(clone);
+      });
+    } else {
+      ghost = sourceEl.cloneNode(true);
+      ghost.classList.add('is-ghost');
+      ghost.classList.remove('is-dragging', 'is-selected');
+      ghost.style.width = (right - left) + 'px';
+    }
+
+    ghost.style.left = left + 'px';
+    ghost.style.top = top + 'px';
     document.body.appendChild(ghost);
 
-    if (from) sourceEl.classList.add('is-dragging');
+    if (from) sourceEls.forEach((el) => el.classList.add('is-dragging'));
 
     drag = {
       block: block,
       from: from,
       sourceEl: sourceEl,
+      sourceEls: sourceEls,
       ghost: ghost,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
+      groupBlocks: group ? group.blocks : null,
+      isolated: Boolean(group && group.isolated),
+      groupRect: { left: left, top: top, right: right, bottom: bottom },
+      offsetX: event.clientX - left,
+      offsetY: event.clientY - top,
       startX: event.clientX,
       startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
       moved: false,
       target: null,
       inside: false
@@ -516,10 +627,24 @@
       if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 4) return;
       drag.moved = true;
       emptyEl.classList.add('is-hidden');
+
+      if (drag.from) {
+        if (drag.isolated) {
+          selectBlockOnly(drag.block);
+        } else {
+          selectBlockRange(drag.from.si, drag.from.bi);
+        }
+      }
     }
 
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
     drag.ghost.style.left = (event.clientX - drag.offsetX) + 'px';
     drag.ghost.style.top = (event.clientY - drag.offsetY) + 'px';
+
+    const overPalette = Boolean(drag.from) && isOverPalette(event.clientX, event.clientY);
+    toolboxEl.classList.toggle('is-delete-target', overPalette);
+
     updateDropTarget(event.clientX, event.clientY);
   }
 
@@ -537,34 +662,37 @@
       scriptsEl.querySelectorAll('.script .block')
     ).filter((el) => !el.classList.contains('is-dragging'));
 
+    const dx = x - drag.startX;
+    const dy = y - drag.startY;
+    const groupLeft = drag.groupRect.left + dx;
+    const groupTop = drag.groupRect.top + dy;
+    const groupBottom = drag.groupRect.bottom + dy;
+
     let best = null;
-    let bestDistance = Infinity;
+    let bestGap = Infinity;
 
     blocks.forEach((el) => {
       const rect = el.getBoundingClientRect();
-      if (x < rect.left - 80 || x > rect.right + 80) return;
+      if (Math.abs(groupLeft - rect.left) > SNAP_LEFT) return;
+
+      const beforeGap = Math.abs(groupBottom - rect.top);
+      const afterGap = Math.abs(groupTop - rect.bottom);
+      const before = beforeGap <= afterGap;
+      const gap = before ? beforeGap : afterGap;
+
+      if (gap > SNAP_DISTANCE || gap >= bestGap) return;
 
       const si = Number(el.dataset.script);
       const bi = Number(el.dataset.index);
-      const isLast = workspace[si] && bi === workspace[si].length - 1;
-      const extraBelow = isLast ? 90 : 26;
 
-      if (y < rect.top - 26 || y > rect.bottom + extraBelow) return;
-
-      const midpoint = rect.top + rect.height / 2;
-      const before = y < midpoint;
-      const distance = Math.abs(y - midpoint);
-
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        best = {
-          si: si,
-          index: bi + (before ? 0 : 1),
-          left: rect.left,
-          top: before ? rect.top - 2 : rect.bottom - 8,
-          width: rect.width
-        };
-      }
+      bestGap = gap;
+      best = {
+        si: si,
+        index: bi + (before ? 0 : 1),
+        left: rect.left,
+        top: before ? rect.top - 2 : rect.bottom - 8,
+        width: rect.width
+      };
     });
 
     if (best) {
@@ -576,7 +704,7 @@
     }
   }
 
-  function onPointerUp() {
+  function onPointerUp(event) {
     if (!drag) return;
 
     window.removeEventListener('pointermove', onPointerMove);
@@ -587,32 +715,68 @@
     drag = null;
 
     document.body.classList.remove('is-dragging');
+    toolboxEl.classList.remove('is-delete-target');
     hideDropLine();
     d.ghost.remove();
-    d.sourceEl.classList.remove('is-dragging');
+    (d.sourceEls || [d.sourceEl]).forEach((el) => el.classList.remove('is-dragging'));
 
+    if (event && event.type === 'pointercancel') return;
+
+    const dragBlocks = d.groupBlocks || [d.block];
+    const dragCount = dragBlocks.length;
+    const overPalette = Boolean(d.from) && d.moved && isOverPalette(d.lastX, d.lastY);
     let changed = false;
+
+    if (!d.moved && d.from) {
+      const now = performance.now();
+      const isDoubleClick = lastBlockClick &&
+        lastBlockClick.id === d.block.id &&
+        now - lastBlockClick.time <= DOUBLE_CLICK_MS;
+
+      if (isDoubleClick) {
+        selectBlockOnly(d.block);
+        lastBlockClick = null;
+      } else {
+        selectBlockRange(d.from.si, d.from.bi);
+        lastBlockClick = { id: d.block.id, time: now };
+      }
+    } else if (d.moved) {
+      lastBlockClick = null;
+      suppressCanvasClickUntil = performance.now() + 250;
+    }
 
     if (!d.moved) {
       if (!d.from) {
         workspace.push([d.block]);
         changed = true;
       }
+    } else if (overPalette) {
+      if (workspace[d.from.si]) {
+        workspace[d.from.si].splice(d.from.bi, dragCount);
+      }
+      workspace = workspace.filter((script) => script.length > 0);
+      dragBlocks.forEach((block) => selectedBlockIds.delete(block.id));
+      if (dragBlocks.some((block) => block.id === isolatedBlockId)) isolatedBlockId = null;
+
+      changed = true;
+      showToast(dragCount + (dragCount === 1 ? ' block deleted.' : ' blocks deleted.'));
     } else if (d.inside && d.target) {
       if (d.target.append) {
-        if (d.from) workspace[d.from.si].splice(d.from.bi, 1);
-        workspace.push([d.block]);
+        if (d.from && workspace[d.from.si]) {
+          workspace[d.from.si].splice(d.from.bi, dragCount);
+        }
+        workspace.push(dragBlocks.slice());
       } else {
         let si = d.target.si;
         let index = d.target.index;
 
-        if (d.from) {
+        if (d.from && workspace[d.from.si]) {
           const sameScript = d.from.si === si;
-          workspace[d.from.si].splice(d.from.bi, 1);
-          if (sameScript && d.from.bi < index) index -= 1;
+          workspace[d.from.si].splice(d.from.bi, dragCount);
+          if (sameScript && d.from.bi < index) index -= dragCount;
         }
 
-        if (workspace[si]) workspace[si].splice(index, 0, d.block);
+        if (workspace[si]) workspace[si].splice(index, 0, ...dragBlocks);
       }
       workspace = workspace.filter((script) => script.length > 0);
       changed = true;
@@ -1172,7 +1336,9 @@
     const block = workspace[scriptIndex] && workspace[scriptIndex][blockIndex];
     if (!block) return;
 
-    startDrag(event, block, { si: scriptIndex, bi: blockIndex }, el);
+    const group = dragGroupAt(scriptIndex, blockIndex);
+    const from = { si: scriptIndex, bi: group ? group.start : blockIndex };
+    startDrag(event, block, from, el, group);
   });
 
   runBtn.addEventListener('click', runProgram);
@@ -1180,10 +1346,41 @@
   resetBtn.addEventListener('click', () => resetSprite(true));
   clearBtn.addEventListener('click', () => {
     stopProgram();
+    isolatedBlockId = null;
+    selectedBlockIds.clear();
     workspace = [];
     renderWorkspace();
     resetSprite(true);
     showToast('Workspace cleared.');
+  });
+
+  canvasEl.addEventListener('click', (event) => {
+    if (event.target.closest('.block')) return;
+    if (performance.now() < suppressCanvasClickUntil) return;
+    clearSelection();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const target = event.target;
+    if (target && target.closest &&
+        target.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+    const active = document.activeElement;
+    if (active && active.closest &&
+        active.closest('input, textarea, select, [contenteditable="true"]')) return;
+
+    if (!selectedBlockIds.size) return;
+    event.preventDefault();
+
+    if (state.running) {
+      showToast('Stop the program before editing.');
+      return;
+    }
+
+    deleteSelectedBlocks();
   });
 
   copyCodeBtn.addEventListener('click', copyArduinoCode);
