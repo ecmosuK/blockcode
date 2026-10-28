@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="44" viewBox="0 0 160 44" fill="none">
+
+
+  <g transform="translate(16 11.5) scale(.625)">
+    <path d="M7 8c-3 0-3 8 0 8 4 0 6-8 10-8 3 0 3 8 0 8-4 0-6-8-10-8z" fill="none" stroke="#042f2e" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <text x="40" y="24" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">forever</text>
+</svg>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="44" viewBox="0 0 200 44" fill="none">
+
+  <rect x="96" y="8" width="48" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
+  <g transform="translate(16 11.5) scale(.625)">
+    <path d="M5 12a7 7 0 1 0 2.4-5.3M4 4v4h4" fill="none" stroke="#042f2e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="40" y="24" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">repeat</text>
+  <text x="152" y="24" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">times</text>
+</svg>

@@ -33,6 +33,11 @@
       </div>
     </header>
 
+    <nav class="tabs" role="tablist" aria-label="BlockCode views">
+      <button id="tabBlocks" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="viewBlocks" data-view="blocks">Blocks</button>
+      <button id="tabAssets" class="tab" type="button" role="tab" aria-selected="false" aria-controls="viewAssets" data-view="assets">Sprites &amp; backgrounds</button>
+    </nav>
+
     <main class="views">
       <section class="view is-active" id="viewBlocks" role="tabpanel" aria-labelledby="tabBlocks" data-view-panel="blocks">
         <div class="layout" id="layout">
@@ -110,12 +115,86 @@
           </section>
         </div>
       </section>
+
+      <section class="view" id="viewAssets" role="tabpanel" aria-labelledby="tabAssets" data-view-panel="assets" hidden>
+        <div class="asset-layout">
+          <section class="panel asset-panel">
+            <div class="panel-head">
+              <h2>Sprites</h2>
+              <div class="panel-head-right">
+                <span class="asset-note">Choose the sprite the blocks control</span>
+              </div>
+            </div>
+            <div class="asset-body">
+              <div class="asset-create">
+                <label class="asset-field">
+                  <span>Name</span>
+                  <input id="spriteName" type="text" placeholder="My sprite" value="Star">
+                </label>
+                <label class="asset-field asset-field-color">
+                  <span>Color</span>
+                  <input id="spriteColor" type="color" value="#38bdf8">
+                </label>
+                <label class="asset-field asset-field-symbol">
+                  <span>Symbol</span>
+                  <input id="spriteSymbol" type="text" maxlength="2" value="★">
+                </label>
+                <button id="createSpriteBtn" class="btn btn-small" type="button">Create sprite</button>
+                <label class="btn btn-small upload-btn">
+                  Upload SVG/PNG
+                  <input id="spriteUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden>
+                </label>
+              </div>
+              <div id="spriteList" class="asset-list" aria-live="polite"></div>
+            </div>
+          </section>
+
+          <section class="panel asset-panel">
+            <div class="panel-head">
+              <h2>Backgrounds</h2>
+              <div class="panel-head-right">
+                <span class="asset-note">Set the stage backdrop</span>
+              </div>
+            </div>
+            <div class="asset-body">
+              <div class="asset-create">
+                <label class="asset-field">
+                  <span>Name</span>
+                  <input id="bgName" type="text" placeholder="My background" value="Aurora">
+                </label>
+                <label class="asset-field asset-field-color">
+                  <span>Color</span>
+                  <input id="bgColor" type="color" value="#17264f">
+                </label>
+                <label class="asset-field asset-field-color">
+                  <span>Accent</span>
+                  <input id="bgAccent" type="color" value="#060a14">
+                </label>
+                <button id="createBgBtn" class="btn btn-small" type="button">Create background</button>
+                <label class="btn btn-small upload-btn">
+                  Upload image
+                  <input id="bgUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden>
+                </label>
+              </div>
+              <div id="bgList" class="asset-list" aria-live="polite"></div>
+            </div>
+          </section>
+        </div>
+      </section>
     </main>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <div id="dropLine" class="drop-line" aria-hidden="true"></div>
+  <div id="snapPreview" class="snap-preview" aria-hidden="true"></div>
   <script src="assets/block-pack.js"></script>
+  <script src="scripts/app-core.js"></script>
+  <script src="scripts/app-layout.js"></script>
+  <script src="scripts/app-blocks.js"></script>
+  <script src="scripts/app-assets.js"></script>
+  <script src="scripts/app-drag.js"></script>
+  <script src="scripts/app-runtime.js"></script>
+  <script src="scripts/app-codegen.js"></script>
+  <script src="scripts/app-ui.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

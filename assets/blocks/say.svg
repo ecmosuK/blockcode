@@ -3,16 +3,16 @@
     <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H248 Q252 0 252 4 V34 Q252 38 248 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
     <clipPath id="tabClip"><path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z"/></clipPath>
   </defs>
-  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H248 Q252 0 252 4 V34 Q252 38 248 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#a855f7"/>
-  <rect x="0" y="36" width="252" height="2" fill="#8644c6" clip-path="url(#blockClip)"/>
-  <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#a855f7"/>
-  <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#8644c6" stroke-width="4" clip-path="url(#tabClip)"/>
+  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H248 Q252 0 252 4 V34 Q252 38 248 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ef4444"/>
+  <rect x="0" y="36" width="252" height="2" fill="#bf3636" clip-path="url(#blockClip)"/>
+  <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ef4444"/>
+  <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bf3636" stroke-width="4" clip-path="url(#tabClip)"/>
   <rect x="70" y="8" width="96" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
   <rect x="196" y="8" width="30" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
   <g transform="translate(16 11.5) scale(.625)">
-    <path d="M5 3.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-5 4.5v-4.5H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" fill="#ffffff"/>
+    <path d="M5 3.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-5 4.5v-4.5H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" fill="#450a0a"/>
   </g>
-  <text x="40" y="24" fill="#ffffff" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">say</text>
-  <text x="172" y="24" fill="#ffffff" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">for</text>
-  <text x="232" y="24" fill="#ffffff" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">s</text>
+  <text x="40" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">say</text>
+  <text x="172" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">for</text>
+  <text x="232" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">s</text>
 </svg>

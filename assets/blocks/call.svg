@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="230" height="44" viewBox="0 0 230 44" fill="none">
+  <defs>
+    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H226 Q230 0 230 4 V34 Q230 38 226 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
+    <clipPath id="tabClip"><path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z"/></clipPath>
+  </defs>
+  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H226 Q230 0 230 4 V34 Q230 38 226 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#14b8a6"/>
+  <rect x="0" y="36" width="230" height="2" fill="#109385" clip-path="url(#blockClip)"/>
+  <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#14b8a6"/>
+  <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#109385" stroke-width="4" clip-path="url(#tabClip)"/>
+  <rect x="76" y="8" width="112" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
+  <g transform="translate(16 11.5) scale(.625)">
+    <path d="M4 12h15M14 7l5 5-5 5" fill="none" stroke="#042f2e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="40" y="24" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">call</text>
+  <text x="194" y="24" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">()</text>
+</svg>
