@@ -31,7 +31,117 @@ function selectOptionsFor(type) {
   if (type === 'function') {
     return functionNames().map((name) => ({ value: name, label: name }));
   }
+  if (type === 'variable') {
+    return workspaceVariables.map((name) => ({ value: name, label: name }));
+  }
+  if (type === 'list') {
+    return workspaceLists.map((name) => ({ value: name, label: name }));
+  }
   return [];
+}
+
+let variablesLoaded = false;
+let listsLoaded = false;
+
+function loadWorkspaceVariables() {
+  if (variablesLoaded) return;
+  variablesLoaded = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem(VARIABLES_KEY) || '[]');
+    if (Array.isArray(saved)) {
+      workspaceVariables = Array.from(new Set(saved
+        .filter((name) => typeof name === 'string')
+        .map((name) => name.trim())
+        .filter(Boolean)));
+    }
+    const visible = JSON.parse(localStorage.getItem(VISIBLE_VARIABLES_KEY) || '[]');
+    if (Array.isArray(visible)) {
+      visibleVariables = new Set(visible.filter((name) => workspaceVariables.includes(name)));
+    }
+  } catch (error) {
+    console.warn('BlockCode: Could not load saved variables.', error);
+  }
+}
+
+function saveWorkspaceVariables() {
+  try {
+    localStorage.setItem(VARIABLES_KEY, JSON.stringify(workspaceVariables));
+    return true;
+  } catch (error) {
+    console.error('BlockCode: Could not save variables.', error);
+    showToast('Could not save variables.');
+    return false;
+  }
+}
+
+function loadWorkspaceLists() {
+  if (listsLoaded) return;
+  listsLoaded = true;
+  try {
+    const saved = JSON.parse(localStorage.getItem(LISTS_KEY) || '[]');
+    if (Array.isArray(saved)) {
+      workspaceLists = Array.from(new Set(saved
+        .filter((name) => typeof name === 'string')
+        .map((name) => name.trim())
+        .filter(Boolean)));
+    }
+    const visible = JSON.parse(localStorage.getItem(VISIBLE_LISTS_KEY) || '[]');
+    if (Array.isArray(visible)) {
+      visibleLists = new Set(visible.filter((name) => workspaceLists.includes(name)));
+    }
+  } catch (error) {
+    console.warn('BlockCode: Could not load saved lists.', error);
+  }
+}
+
+function saveWorkspaceLists() {
+  try {
+    localStorage.setItem(LISTS_KEY, JSON.stringify(workspaceLists));
+    return true;
+  } catch (error) {
+    console.error('BlockCode: Could not save lists.', error);
+    showToast('Could not save lists.');
+    return false;
+  }
+}
+
+const VALUE_SOCKET_DIAMETER = 30;
+
+function expressionSuffixSpace(slot) {
+  return slot.suffix ? 6 + (slot.suffixWidth || 0) : 0;
+}
+
+function blockSlotLayouts(block) {
+  const def = DEFS[block.type];
+  if (!def) return [];
+
+  let shift = 0;
+  return (def.slots || []).map((slot) => {
+    const layout = Object.assign({}, slot, { x: slot.x + shift });
+    const value = block.params[slot.field];
+    if (slot.type === 'value' && isExpression(value)) {
+      shift += Math.max(0, blockRenderSize(value).width - slot.w) +
+        expressionSuffixSpace(slot);
+    }
+    return layout;
+  });
+}
+
+function blockRenderSize(block) {
+  const def = DEFS[block.type];
+  if (!def) return { width: 0, height: 0 };
+
+  let requiredWidth = def.width;
+
+  blockSlotLayouts(block).forEach((slot) => {
+    const value = block.params[slot.field];
+    const hasExpression = slot.type === 'value' && isExpression(value);
+    const contentWidth = hasExpression ? blockRenderSize(value).width : slot.w;
+    requiredWidth = Math.max(requiredWidth, slot.x + contentWidth +
+      (hasExpression ? expressionSuffixSpace(slot) : 0));
+  });
+
+  return { width: Math.ceil(requiredWidth), height: def.height };
 }
 
 function renderSelectSlot(block, slot, palette) {
@@ -40,39 +150,60 @@ function renderSelectSlot(block, slot, palette) {
   applySlotGeometry(select, slot);
   select.setAttribute('aria-label', slot.label || slot.field || 'value');
 
-  const options = selectOptionsFor(slot.type);
+  const isSpriteSlot = slot.type === 'sprite' || slot.type === 'touching';
   const current = block.params[slot.field] == null ? '' : String(block.params[slot.field]);
+  const isVariableSlot = slot.type === 'variable';
+  const isListSlot = slot.type === 'list';
 
-  if (!options.length) {
-    const empty = document.createElement('option');
-    empty.value = '';
-    empty.textContent = slot.type === 'function' ? 'no functions' : 'none';
-    select.appendChild(empty);
-  }
+  const refreshOptions = () => {
+    const options = slot.type === 'touching'
+      ? [{ value: 'edge', label: 'edge' }].concat(selectOptionsFor('sprite'))
+      : selectOptionsFor(slot.type);
+    const selected = block.params[slot.field] == null ? '' : String(block.params[slot.field]);
+    select.replaceChildren();
 
-  options.forEach((option) => {
-    const node = document.createElement('option');
-    node.value = option.value;
-    node.textContent = option.label;
-    select.appendChild(node);
-  });
+    if (!options.length) {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = slot.type === 'function'
+        ? 'no functions'
+        : (isSpriteSlot ? 'no sprites' : '');
+      select.appendChild(empty);
+    }
 
-  if (current && !options.some((option) => option.value === current)) {
-    const node = document.createElement('option');
-    node.value = current;
-    node.textContent = current;
-    select.appendChild(node);
-  }
+    options.forEach((option) => {
+      const node = document.createElement('option');
+      node.value = option.value;
+      node.textContent = option.label;
+      select.appendChild(node);
+    });
 
-  select.value = current || (options[0] ? options[0].value : '');
-  if (!current && select.value) {
-    block.params[slot.field] = select.value;
-  }
+    if (!isVariableSlot && !isListSlot && !isSpriteSlot && selected &&
+        !options.some((option) => option.value === selected)) {
+      const node = document.createElement('option');
+      node.value = selected;
+      node.textContent = selected;
+      select.appendChild(node);
+    }
 
-  if (palette) {
-    select.tabIndex = -1;
-    select.disabled = true;
-  }
+    const selectedAvailable = options.some((option) => option.value === selected);
+    if (isSpriteSlot && selected && !selectedAvailable) {
+      block.params[slot.field] = '';
+    }
+    select.value = selectedAvailable
+      ? selected
+      : (isSpriteSlot ? '' : (options[0] ? options[0].value : ''));
+    if (!selected && !isSpriteSlot && select.value) {
+      block.params[slot.field] = select.value;
+    }
+  };
+  refreshOptions();
+  const options = selectOptionsFor(slot.type);
+
+  if (isVariableSlot && !select.value) select.value = '';
+  if ((isVariableSlot || isListSlot) && !select.value) select.value = '';
+  if (isVariableSlot || isListSlot) select.disabled = !options.length;
+  if (isSpriteSlot) select.addEventListener('focus', refreshOptions);
 
   select.addEventListener('pointerdown', (event) => event.stopPropagation());
   select.addEventListener('change', () => {
@@ -92,12 +223,10 @@ function renderTextSlot(block, slot, palette) {
   input.setAttribute('aria-label', slot.label || slot.field || 'value');
   input.spellcheck = false;
 
-  if (palette) {
-    input.readOnly = true;
-    input.tabIndex = -1;
-  }
-
-  input.addEventListener('pointerdown', (event) => event.stopPropagation());
+  input.addEventListener('pointerdown', (event) => {
+    event.stopPropagation();
+    input.focus();
+  });
   input.addEventListener('input', () => {
     block.params[slot.field] = input.value;
     if (block.type === 'define') refreshFunctionSelects();
@@ -116,28 +245,28 @@ function renderValueSlot(block, slot, palette) {
   holder.dataset.blockId = block.id;
   holder.dataset.field = slot.field;
   holder.dataset.type = 'value';
-  applySlotGeometry(holder, slot);
-
   const value = slotValue(block, slot);
+  const expression = isExpression(value);
+  const expressionSize = expression ? blockRenderSize(value) : null;
+  const socketWidth = expressionSize ? expressionSize.width : VALUE_SOCKET_DIAMETER;
+  const socketHeight = expressionSize ? expressionSize.height : VALUE_SOCKET_DIAMETER;
+  holder.style.left = (expression
+    ? slot.x
+    : slot.x + slot.w / 2 - socketWidth / 2) + 'px';
+  holder.style.top = (slot.y + slot.h / 2 - socketHeight / 2) + 'px';
+  holder.style.width = socketWidth + 'px';
+  holder.style.height = socketHeight + 'px';
+
   if (isExpression(value)) {
     holder.classList.add('has-expression');
     const expression = renderBlock(value, null, { palette: palette });
     if (expression) holder.appendChild(expression);
-    if (!palette) {
-      const clear = document.createElement('button');
-      clear.type = 'button';
-      clear.className = 'expr-clear';
-      clear.title = 'Clear expression';
-      clear.setAttribute('aria-label', 'Clear expression');
-      clear.textContent = '\u00d7';
-      clear.addEventListener('pointerdown', (event) => event.stopPropagation());
-      clear.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const def = DEFS[block.type];
-        block.params[slot.field] = def && def.fields ? def.fields[slot.field] : 0;
-        renderWorkspace(block.id);
-      });
-      holder.appendChild(clear);
+    if (slot.suffix) {
+      const suffix = document.createElement('span');
+      suffix.className = 'expr-suffix';
+      suffix.textContent = slot.suffix;
+      suffix.style.color = slot.suffixColor || categoryColor(DEFS[block.type].category);
+      holder.appendChild(suffix);
     }
   } else {
     const input = document.createElement('input');
@@ -150,10 +279,6 @@ function renderValueSlot(block, slot, palette) {
     input.style.top = '0';
     input.value = value;
     input.setAttribute('aria-label', slot.label || slot.field || 'value');
-    if (palette) {
-      input.readOnly = true;
-      input.tabIndex = -1;
-    }
     input.addEventListener('pointerdown', (event) => event.stopPropagation());
     input.addEventListener('input', () => {
       block.params[slot.field] = input.value;
@@ -165,20 +290,99 @@ function renderValueSlot(block, slot, palette) {
   return holder;
 }
 
+function saveVisibleNames(key, names) {
+  try {
+    localStorage.setItem(key, JSON.stringify(Array.from(names)));
+    return true;
+  } catch (error) {
+    console.error('BlockCode: Could not save monitor visibility.', error);
+    showToast('Could not save visibility settings.');
+    return false;
+  }
+}
+
+function appendCreatedNameItems(wrap, names, blockType, field, kind, visibleNames, visibleKey, saveNames) {
+  names.forEach((name) => {
+    const block = makeBlock(blockType, { [field]: name });
+    const el = block && renderBlock(block, null, { palette: true });
+    if (!el) return;
+    el.classList.add('created-name-block');
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', name + ' ' + kind);
+    el.title = name;
+    if (kind === 'variable') {
+      el.removeAttribute('role');
+      el.addEventListener('pointerdown', (event) => {
+        startExpressionDrag(event, makeBlock(blockType, { [field]: name }), el);
+      });
+    }
+
+    const row = document.createElement('div');
+    row.className = 'created-name-row';
+    row.appendChild(el);
+
+    const visibleLabel = document.createElement('label');
+    visibleLabel.className = 'created-name-visible';
+    const visibleCheckbox = document.createElement('input');
+    visibleCheckbox.type = 'checkbox';
+    visibleCheckbox.checked = visibleNames.has(name);
+    visibleCheckbox.setAttribute('aria-label', 'Show ' + name + ' in watch preview');
+    visibleCheckbox.addEventListener('change', () => {
+      if (visibleCheckbox.checked) visibleNames.add(name);
+      else visibleNames.delete(name);
+      if (!saveVisibleNames(visibleKey, visibleNames)) {
+        visibleCheckbox.checked = !visibleCheckbox.checked;
+        if (visibleCheckbox.checked) visibleNames.add(name);
+        else visibleNames.delete(name);
+        return;
+      }
+      renderMonitorPanel();
+    });
+    visibleLabel.append(visibleCheckbox, document.createTextNode('Visible'));
+    row.appendChild(visibleLabel);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'created-name-delete';
+    deleteButton.textContent = 'Delete';
+    deleteButton.setAttribute('aria-label', 'Delete ' + kind + ' ' + name);
+    deleteButton.addEventListener('click', () => {
+      const index = names.indexOf(name);
+      if (index < 0) return;
+      const wasVisible = visibleNames.has(name);
+      names.splice(index, 1);
+      visibleNames.delete(name);
+      if (!saveNames() || !saveVisibleNames(visibleKey, visibleNames)) {
+        names.splice(index, 0, name);
+        if (wasVisible) visibleNames.add(name);
+        saveNames();
+        saveVisibleNames(visibleKey, visibleNames);
+        return;
+      }
+      renderPalette();
+      renderWorkspace();
+      renderMonitorPanel();
+    });
+    row.appendChild(deleteButton);
+    wrap.appendChild(row);
+  });
+}
+
 function renderBlock(block, path, opts) {
   opts = opts || {};
   const def = DEFS[block.type];
   if (!def) return null;
 
   const palette = !!opts.palette;
+  const size = blockRenderSize(block);
   const el = document.createElement('div');
   const isReporterBlock = !!def.reporter;
 
   el.className = 'block' + (isReporterBlock ? ' reporter' : '') + (def.cblock ? ' cblock-head' : '');
   el.dataset.id = block.id;
   el.dataset.type = block.type;
-  el.style.width = def.width + 'px';
-  el.style.height = def.height + 'px';
+  el.style.width = size.width + 'px';
+  el.style.height = size.height + 'px';
   if (!palette && selectedBlockIds.has(block.id)) {
     el.classList.add('is-selected');
   }
@@ -186,18 +390,31 @@ function renderBlock(block, path, opts) {
     el.dataset.path = blockPathKey(path);
   }
 
+  if (size.width > def.width) {
+    const extension = document.createElement('div');
+    extension.className = 'block-extension' + (isReporterBlock ? ' is-reporter' : '');
+    extension.style.left = (def.width - 6) + 'px';
+    extension.style.width = (size.width - def.width + 6) + 'px';
+    extension.style.height = def.height + 'px';
+    extension.style.setProperty('--block-color', categoryColor(def.category));
+    el.appendChild(extension);
+  }
+
   const img = document.createElement('img');
   img.className = 'block-img';
   img.src = def.sprite;
   img.alt = def.label || block.type;
   img.draggable = false;
+  img.style.width = def.width + 'px';
+  img.style.height = def.height + 'px';
   el.appendChild(img);
 
-  (def.slots || []).forEach((slot) => {
+  blockSlotLayouts(block).forEach((slot) => {
     let control = null;
     if (slot.type === 'value') {
       control = renderValueSlot(block, slot, palette);
-    } else if (slot.type === 'sprite' || slot.type === 'background' || slot.type === 'function') {
+    } else if (slot.type === 'sprite' || slot.type === 'touching' || slot.type === 'background' ||
+        slot.type === 'function' || slot.type === 'variable' || slot.type === 'list') {
       control = renderSelectSlot(block, slot, palette);
     } else if (slot.type === 'text') {
       control = renderTextSlot(block, slot, palette);
@@ -330,6 +547,8 @@ function refreshFunctionSelects() {
 }
 
 function renderPalette() {
+  loadWorkspaceVariables();
+  loadWorkspaceLists();
   paletteEl.innerHTML = '';
 
   (PACK.palette || []).forEach((categoryKey) => {
@@ -345,7 +564,104 @@ function renderPalette() {
     title.textContent = category.title || categoryKey;
     wrap.appendChild(title);
 
+    if (categoryKey === 'math') {
+      const createSection = document.createElement('form');
+      createSection.className = 'variable-create';
+      createSection.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const name = variableNameInput.value.trim();
+        if (!name) {
+          variableNameInput.focus();
+          return;
+        }
+        if (workspaceVariables.some((existing) =>
+          existing.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+          showToast('That variable already exists.');
+          variableNameInput.focus();
+          return;
+        }
+
+        workspaceVariables.push(name);
+        if (!saveWorkspaceVariables()) {
+          workspaceVariables.pop();
+          return;
+        }
+        renderPalette();
+        renderWorkspace();
+        showToast('Variable created.');
+      });
+
+      const createTitle = document.createElement('div');
+      createTitle.className = 'variable-create-title';
+      createTitle.textContent = 'Create variable';
+      const variableNameInput = document.createElement('input');
+      variableNameInput.type = 'text';
+      variableNameInput.className = 'variable-name-input';
+      variableNameInput.maxLength = 32;
+      variableNameInput.placeholder = 'Variable name';
+      variableNameInput.setAttribute('aria-label', 'New variable name');
+      const createButton = document.createElement('button');
+      createButton.type = 'submit';
+      createButton.className = 'btn btn-small';
+      createButton.textContent = 'Create';
+      createSection.append(createTitle, variableNameInput, createButton);
+      wrap.appendChild(createSection);
+      appendCreatedNameItems(
+        wrap, workspaceVariables, 'variable', 'name', 'variable',
+        visibleVariables, VISIBLE_VARIABLES_KEY, saveWorkspaceVariables
+      );
+    }
+
+    if (categoryKey === 'lists') {
+      const createSection = document.createElement('form');
+      createSection.className = 'variable-create';
+      createSection.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const name = listNameInput.value.trim();
+        if (!name) {
+          listNameInput.focus();
+          return;
+        }
+        if (workspaceLists.some((existing) =>
+          existing.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+          showToast('That list already exists.');
+          listNameInput.focus();
+          return;
+        }
+
+        workspaceLists.push(name);
+        if (!saveWorkspaceLists()) {
+          workspaceLists.pop();
+          return;
+        }
+        renderPalette();
+        renderWorkspace();
+        showToast('List created.');
+      });
+
+      const createTitle = document.createElement('div');
+      createTitle.className = 'variable-create-title';
+      createTitle.textContent = 'Create list';
+      const listNameInput = document.createElement('input');
+      listNameInput.type = 'text';
+      listNameInput.className = 'variable-name-input';
+      listNameInput.maxLength = 32;
+      listNameInput.placeholder = 'List name';
+      listNameInput.setAttribute('aria-label', 'New list name');
+      const createButton = document.createElement('button');
+      createButton.type = 'submit';
+      createButton.className = 'btn btn-small';
+      createButton.textContent = 'Create';
+      createSection.append(createTitle, listNameInput, createButton);
+      wrap.appendChild(createSection);
+      appendCreatedNameItems(
+        wrap, workspaceLists, 'listlength', 'list', 'list',
+        visibleLists, VISIBLE_LISTS_KEY, saveWorkspaceLists
+      );
+    }
+
     items.forEach((def) => {
+      if (categoryKey === 'math' && def.type === 'variable') return;
       const template = makeBlock(def.type);
       if (!template) return;
       const el = renderBlock(template, null, { palette: true });
@@ -364,6 +680,7 @@ function renderPalette() {
 
     paletteEl.appendChild(wrap);
   });
+  renderMonitorPanel();
 }
 
 function updateSelectionClasses() {
@@ -424,6 +741,7 @@ function deleteSelectedBlocks() {
     const next = filterContainer(script);
     next.x = script.x;
     next.y = script.y;
+    next.zIndex = script.zIndex;
     return next;
   }).filter((script) => script.length > 0);
 
@@ -462,14 +780,27 @@ function makeScript(blocks, x, y) {
   const script = blocks.slice();
   script.x = x;
   script.y = y;
+  script.zIndex = workspace.reduce((highest, current) => {
+    return Math.max(highest, Number(current.zIndex) || 0);
+  }, 0) + 1;
   return script;
 }
 
+function bringScriptToFront(index) {
+  const script = workspace[index];
+  if (!script) return;
+  const highest = workspace.reduce((value, item) => {
+    return Math.max(value, Number(item.zIndex) || 0);
+  }, 0);
+  script.zIndex = highest + 1;
+  const element = scriptsEl.querySelector('.script[data-script="' + index + '"]');
+  if (element) element.style.zIndex = String(script.zIndex);
+}
+
 function snapScriptPosition(x, y) {
-  const rect = scriptsEl.getBoundingClientRect();
   return {
-    x: snapToDevicePixel(rect.left + x) - rect.left,
-    y: snapToDevicePixel(rect.top + y) - rect.top
+    x: snapToDevicePixel(x * workspaceZoom) / workspaceZoom,
+    y: snapToDevicePixel(y * workspaceZoom) / workspaceZoom
   };
 }
 
@@ -479,23 +810,26 @@ function defaultScriptPosition() {
 }
 
 function freeDropPosition(d) {
-  const rect = scriptsEl.getBoundingClientRect();
-  const width = d.groupRect.right - d.groupRect.left;
-  const height = d.groupRect.bottom - d.groupRect.top;
-  const maxX = Math.max(0, rect.width - width);
-  const maxY = Math.max(0, rect.height - height);
+  const canvasRect = canvasEl.getBoundingClientRect();
+  const originX = canvasRect.left + canvasEl.clientLeft - canvasEl.scrollLeft;
+  const originY = canvasRect.top + canvasEl.clientTop - canvasEl.scrollTop;
   const pos = snapScriptPosition(
-    clamp(d.lastX - d.offsetX - rect.left, 0, maxX),
-    clamp(d.lastY - d.offsetY - rect.top, 0, maxY)
+    Math.max(0, (d.lastX - d.offsetX - originX) / workspaceZoom),
+    Math.max(0, (d.lastY - d.offsetY - originY) / workspaceZoom)
   );
-  return {
-    x: clamp(pos.x, 0, maxX),
-    y: clamp(pos.y, 0, maxY)
-  };
+  return pos;
+}
+
+function pointerInsideCanvas(x, y) {
+  const rect = canvasEl.getBoundingClientRect();
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
 function renderWorkspace(focusBlockId) {
+  if (activeWorkspaceSpriteId) saveSpriteWorkspaces();
   scriptsEl.innerHTML = '';
+  const layer = document.createElement('div');
+  layer.className = 'workspace-layer';
 
   workspace.forEach((script, scriptIndex) => {
     if (!script.length) return;
@@ -508,12 +842,31 @@ function renderWorkspace(focusBlockId) {
     );
     column.style.left = pos.x + 'px';
     column.style.top = pos.y + 'px';
+    column.style.zIndex = String(Number(script.zIndex) || scriptIndex + 1);
     script.forEach((block, blockIndex) => {
       const el = renderBlock(block, [scriptIndex, blockIndex]);
       if (el) column.appendChild(el);
     });
-    scriptsEl.appendChild(column);
+    layer.appendChild(column);
   });
+
+  const extent = workspace.reduce((size, script) => {
+    const column = layer.querySelector('.script[data-script="' + workspace.indexOf(script) + '"]');
+    if (!column) return size;
+    const x = Number.isFinite(script.x) ? script.x : 24;
+    const y = Number.isFinite(script.y) ? script.y : 24;
+    return {
+      width: Math.max(size.width, x + column.offsetWidth + 32),
+      height: Math.max(size.height, y + column.offsetHeight + 32)
+    };
+  }, { width: canvasEl.clientWidth, height: canvasEl.clientHeight });
+  scriptsEl.style.width = (extent.width * workspaceZoom) + 'px';
+  scriptsEl.style.height = (extent.height * workspaceZoom) + 'px';
+  layer.style.width = extent.width + 'px';
+  layer.style.height = extent.height + 'px';
+  layer.style.transform = 'scale(' + workspaceZoom + ')';
+  scriptsEl.appendChild(layer);
+  canvasEl.style.setProperty('--workspace-grid-size', (22 * workspaceZoom) + 'px');
 
   const isEmpty = workspace.length === 0;
   emptyEl.classList.toggle('is-hidden', !isEmpty);
@@ -522,4 +875,21 @@ function renderWorkspace(focusBlockId) {
     : 'Drag blocks into loops, or snap stacks together.';
 
   renderWatchCpp(focusBlockId);
+}
+
+function setWorkspaceZoom(zoom, anchorX, anchorY) {
+  const nextZoom = clamp(zoom, 0.01, 1);
+  if (nextZoom === workspaceZoom) return;
+  const x = anchorX == null ? canvasEl.clientWidth / 2 : anchorX;
+  const y = anchorY == null ? canvasEl.clientHeight / 2 : anchorY;
+  const ratio = nextZoom / workspaceZoom;
+  const scrollLeft = (canvasEl.scrollLeft + x) * ratio - x;
+  const scrollTop = (canvasEl.scrollTop + y) * ratio - y;
+  workspaceZoom = nextZoom;
+  zoomLevelEl.textContent = 'Ctrl + scroll · ' + Math.round(workspaceZoom * 100) + '%';
+  renderWorkspace();
+  requestAnimationFrame(() => {
+    canvasEl.scrollLeft = Math.max(0, scrollLeft);
+    canvasEl.scrollTop = Math.max(0, scrollTop);
+  });
 }

@@ -7,7 +7,7 @@
   <rect x="0" y="36" width="260" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
   <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ec4899"/>
   <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bd3a7a" stroke-width="4" clip-path="url(#tabClip)"/>
-  <rect x="190" y="8" width="48" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
+  <circle cx="214" cy="19" r="15" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
   <g transform="translate(16 11.5) scale(.625)">
     <path d="M20 12a8 8 0 1 1-2.6-5.9" fill="none" stroke="#500724" stroke-width="2.2" stroke-linecap="round"/><path d="M20 4v4.6h-4.6" fill="none" stroke="#500724" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>

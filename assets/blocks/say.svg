@@ -8,11 +8,11 @@
   <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ef4444"/>
   <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bf3636" stroke-width="4" clip-path="url(#tabClip)"/>
   <rect x="70" y="8" width="96" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
-  <rect x="196" y="8" width="30" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
+  <circle cx="211" cy="19" r="15" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
   <g transform="translate(16 11.5) scale(.625)">
     <path d="M5 3.5h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-5 4.5v-4.5H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z" fill="#450a0a"/>
   </g>
   <text x="40" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">say</text>
-  <text x="172" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">for</text>
+  <text x="181" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">for</text>
   <text x="232" y="24" fill="#450a0a" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">s</text>
 </svg>

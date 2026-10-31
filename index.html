@@ -29,13 +29,14 @@
         <button id="stopBtn" class="btn" type="button" disabled>Stop</button>
         <button id="resetBtn" class="btn" type="button">Reset</button>
         <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
-        <button id="uploadBtn" class="btn btn-ghost" type="button">Upload</button>
+        <button id="uploadBtn" class="btn btn-ghost" type="button" title="Build and send the app to the connected watch over USB">Upload to Watch</button>
       </div>
     </header>
 
     <nav class="tabs" role="tablist" aria-label="BlockCode views">
       <button id="tabBlocks" class="tab is-active" type="button" role="tab" aria-selected="true" aria-controls="viewBlocks" data-view="blocks">Blocks</button>
       <button id="tabAssets" class="tab" type="button" role="tab" aria-selected="false" aria-controls="viewAssets" data-view="assets">Sprites &amp; backgrounds</button>
+      <button id="tabAssetEditor" class="tab" type="button" role="tab" aria-selected="false" aria-controls="viewAssetEditor" data-view="asset-editor">Asset editor</button>
     </nav>
 
     <main class="views">
@@ -43,7 +44,7 @@
         <div class="layout" id="layout">
           <aside class="panel toolbox" id="panelToolbox" data-panel="toolbox">
             <div class="panel-head">
-              <h2>Blocks</h2>
+              <h2>Code</h2>
               <div class="panel-head-right">
                 <span>drag to canvas</span>
                 <button class="panel-toggle" type="button" data-panel-toggle="toolbox" aria-expanded="true" aria-controls="panelToolbox" aria-label="Collapse Blocks panel" title="Collapse Blocks panel">-</button>
@@ -59,6 +60,7 @@
               <h2>Workspace</h2>
               <div class="panel-head-right">
                 <span id="hint" class="hint">Snap blocks under the hat block</span>
+                <span id="zoomLevel" class="workspace-zoom" title="Hold Ctrl and scroll to zoom; maximum is 100%">Ctrl + scroll · 100%</span>
                 <button class="panel-toggle" type="button" data-panel-toggle="workspace" aria-expanded="true" aria-controls="panelWorkspace" aria-label="Collapse Workspace panel" title="Collapse Workspace panel">-</button>
               </div>
             </div>
@@ -81,6 +83,7 @@
                 <span id="codeStatus" aria-live="polite">Generated from blocks</span>
                 <button id="copyCodeBtn" class="btn btn-small" type="button">Copy</button>
                 <button id="downloadCodeBtn" class="btn btn-small" type="button">Download .cpp</button>
+                <button id="buildAppBtn" class="btn btn-small" type="button">Build watch .app</button>
                 <button class="panel-toggle" type="button" data-panel-toggle="code" aria-expanded="true" aria-controls="panelCode" aria-label="Collapse Code panel" title="Collapse Code panel">-</button>
               </div>
             </div>
@@ -93,7 +96,7 @@
 
           <section class="panel stage-panel" id="panelStage" data-panel="stage">
             <div class="panel-head">
-              <h2>Stage</h2>
+              <h2>Watch Preview</h2>
               <div class="panel-head-right">
                 <div class="stage-meta">
                   <select id="spritePick" class="sprite-pick" aria-label="Choose stage sprite"></select>
@@ -102,15 +105,21 @@
                 <button class="panel-toggle" type="button" data-panel-toggle="stage" aria-expanded="true" aria-controls="panelStage" aria-label="Collapse Stage panel" title="Collapse Stage panel">-</button>
               </div>
             </div>
-            <div id="stage" class="stage">
-              <div class="origin" aria-hidden="true"></div>
-              <div id="sprite" class="sprite">
-                <div id="bubble" class="bubble"></div>
-                <div id="rocket" class="rocket">
-                  <img id="spriteImg" src="assets/sprites/rocket.svg" alt="Rocket">
+            <div class="watch-preview-wrap">
+              <div id="monitorPanel" class="monitor-panel" aria-live="polite"></div>
+              <div class="watch-shell" aria-label="Watch screen preview">
+                <div id="stage" class="stage">
+                  <div class="origin" aria-hidden="true"></div>
+                  <div id="sprite" class="sprite">
+                    <div id="bubble" class="bubble"></div>
+                    <div id="rocket" class="rocket">
+                      <img id="spriteImg" src="assets/sprites/rocket.svg" alt="Rocket">
+                    </div>
+                  </div>
+                  <div class="stage-badge">Watch screen · 410 × 502</div>
                 </div>
               </div>
-              <div class="stage-badge">Mission Control</div>
+              <div id="spriteStrip" class="sprite-strip" role="group" aria-label="Choose sprite code"></div>
             </div>
           </section>
         </div>
@@ -123,23 +132,12 @@
               <h2>Sprites</h2>
               <div class="panel-head-right">
                 <span class="asset-note">Choose the sprite the blocks control</span>
+                <button id="makeCustomSpriteBtn" class="btn btn-small btn-ghost" type="button">Want to make a custom sprite?</button>
               </div>
             </div>
             <div class="asset-body">
               <div class="asset-create">
-                <label class="asset-field">
-                  <span>Name</span>
-                  <input id="spriteName" type="text" placeholder="My sprite" value="Star">
-                </label>
-                <label class="asset-field asset-field-color">
-                  <span>Color</span>
-                  <input id="spriteColor" type="color" value="#38bdf8">
-                </label>
-                <label class="asset-field asset-field-symbol">
-                  <span>Symbol</span>
-                  <input id="spriteSymbol" type="text" maxlength="2" value="★">
-                </label>
-                <button id="createSpriteBtn" class="btn btn-small" type="button">Create sprite</button>
+                <button id="newSpriteBtn" class="btn btn-small" type="button">New sprite</button>
                 <label class="btn btn-small upload-btn">
                   Upload SVG/PNG
                   <input id="spriteUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" hidden>
@@ -181,11 +179,32 @@
           </section>
         </div>
       </section>
+
+      <section class="view" id="viewAssetEditor" role="tabpanel" aria-labelledby="tabAssetEditor" data-view-panel="asset-editor" hidden>
+        <section class="panel asset-editor-panel">
+          <div class="panel-head">
+            <h2 id="assetEditorTitle">Asset editor</h2>
+            <div class="panel-head-right">
+              <button id="assetEditorBack" class="btn btn-small" type="button">Back to sprites &amp; backgrounds</button>
+            </div>
+          </div>
+          <div class="asset-editor-body">
+            <div id="assetEditorHost"></div>
+          </div>
+        </section>
+      </section>
     </main>
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <section id="buildNotice" class="build-notice" aria-live="polite" aria-busy="false" hidden>
+    <button id="buildNoticeClose" class="build-notice-close" type="button" aria-label="Close build status">×</button>
+    <div id="buildNoticeProgress" class="build-notice-progress" hidden><span></span></div>
+    <h2 id="buildNoticeTitle"></h2>
+    <pre id="buildNoticeMessage"></pre>
+  </section>
   <div id="snapPreview" class="snap-preview" aria-hidden="true"></div>
+  <div id="codeTip" class="code-tip" role="tooltip" aria-hidden="true"></div>
   <script src="assets/block-pack.js"></script>
   <script src="scripts/app-core.js"></script>
   <script src="scripts/app-layout.js"></script>

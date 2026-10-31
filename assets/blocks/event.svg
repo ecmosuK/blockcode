@@ -3,13 +3,13 @@
     <clipPath id="blockClip"><path d="M10 0 H150 Q160 0 160 10 V42 Q160 46 156 46 H4 Q0 46 0 42 V10 Q0 0 10 0 Z"/></clipPath>
     <clipPath id="tabClip"><path d="M16 42 H36 V47 Q36 52 33 52 H19 Q16 52 16 47 V42 Z"/></clipPath>
   </defs>
-  <path d="M10 0 H150 Q160 0 160 10 V42 Q160 46 156 46 H4 Q0 46 0 42 V10 Q0 0 10 0 Z" fill="#f0b32e"/>
-  <rect x="0" y="44" width="160" height="2" fill="#c08f25" clip-path="url(#blockClip)"/>
-  <path d="M16 42 H36 V47 Q36 52 33 52 H19 Q16 52 16 47 V42 Z" fill="#f0b32e"/>
-  <path d="M16 44 V47 Q16 52 19 52 H33 Q36 52 36 47 V44" fill="none" stroke="#c08f25" stroke-width="4" clip-path="url(#tabClip)"/>
+  <path d="M10 0 H150 Q160 0 160 10 V42 Q160 46 156 46 H4 Q0 46 0 42 V10 Q0 0 10 0 Z" fill="#14b8a6"/>
+  <rect x="0" y="44" width="160" height="2" fill="#109385" clip-path="url(#blockClip)"/>
+  <path d="M16 42 H36 V47 Q36 52 33 52 H19 Q16 52 16 47 V42 Z" fill="#14b8a6"/>
+  <path d="M16 44 V47 Q16 52 19 52 H33 Q36 52 36 47 V44" fill="none" stroke="#109385" stroke-width="4" clip-path="url(#tabClip)"/>
 
   <g transform="translate(16 15.5) scale(.625)">
-    <path d="M5 21V4" fill="none" stroke="#3a2500" stroke-width="2.2" stroke-linecap="round"/><path d="M6 5h12l-2.8 4.5L18 14H6z" fill="#3a2500"/>
+    <path d="M5 21V4" fill="none" stroke="#042f2e" stroke-width="2.2" stroke-linecap="round"/><path d="M6 5h12l-2.8 4.5L18 14H6z" fill="#042f2e"/>
   </g>
-  <text x="40" y="28" fill="#3a2500" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">when clicked</text>
+  <text x="40" y="28" fill="#042f2e" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">when clicked</text>
 </svg>

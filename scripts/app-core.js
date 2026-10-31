@@ -28,9 +28,17 @@ let toastTimer = null;
 let lastBlockClick = null;
 let suppressCanvasClickUntil = 0;
 let isolatedBlockId = null;
+let workspaceZoom = 1;
+let workspaceBySprite = Object.create(null);
+let activeWorkspaceSpriteId = null;
+const SPRITE_WORKSPACES_KEY = 'blockcode.sprite-workspaces.v1';
 const selectedBlockIds = new Set();
 const DOUBLE_CLICK_MS = 500;
 const ASSETS_KEY = 'blockcode.assets.v1';
+const VARIABLES_KEY = 'blockcode.variables.v1';
+const LISTS_KEY = 'blockcode.lists.v1';
+const VISIBLE_VARIABLES_KEY = 'blockcode.visible-variables.v1';
+const VISIBLE_LISTS_KEY = 'blockcode.visible-lists.v1';
 
 const state = {
   running: false,
@@ -46,16 +54,23 @@ const state = {
 
 let runtimeSprites = [];
 let runtimeBackgrounds = [];
+let workspaceVariables = [];
+let workspaceLists = [];
+let visibleVariables = new Set();
+let visibleLists = new Set();
+let monitorRuntimeValues = null;
 let audioContext = null;
 let activeOscillators = new Set();
 
 const $ = (id) => document.getElementById(id);
+const monitorPanelEl = $('monitorPanel');
 const toolboxEl = $('panelToolbox');
 const paletteEl = $('palette');
 const scriptsEl = $('scripts');
 const canvasEl = $('canvas');
 const emptyEl = $('empty');
 const hintEl = $('hint');
+const zoomLevelEl = $('zoomLevel');
 const toastEl = $('toast');
 const snapPreview = $('snapPreview');
 const stageEl = $('stage');
@@ -63,21 +78,22 @@ const spriteEl = $('sprite');
 const rocketEl = $('rocket');
 const spriteImg = $('spriteImg');
 const spritePick = $('spritePick');
+const spriteStripEl = $('spriteStrip');
 const bubbleEl = $('bubble');
 const posEl = $('posLabel');
 const runBtn = $('runBtn');
 const stopBtn = $('stopBtn');
 const resetBtn = $('resetBtn');
 const clearBtn = $('clearBtn');
+const uploadBtn = $('uploadBtn');
 const layoutEl = $('layout');
 const codeStatusEl = $('codeStatus');
 const watchCodeEl = $('watchCode');
 const copyCodeBtn = $('copyCodeBtn');
 const downloadCodeBtn = $('downloadCodeBtn');
-const spriteNameInput = $('spriteName');
-const spriteColorInput = $('spriteColor');
-const spriteSymbolInput = $('spriteSymbol');
-const createSpriteBtn = $('createSpriteBtn');
+const buildAppBtn = $('buildAppBtn');
+const newSpriteBtn = $('newSpriteBtn');
+const makeCustomSpriteBtn = $('makeCustomSpriteBtn');
 const spriteUploadInput = $('spriteUpload');
 const spriteListEl = $('spriteList');
 const bgNameInput = $('bgName');
@@ -86,6 +102,9 @@ const bgAccentInput = $('bgAccent');
 const createBgBtn = $('createBgBtn');
 const bgUploadInput = $('bgUpload');
 const bgListEl = $('bgList');
+const assetEditorHost = $('assetEditorHost');
+const assetEditorTitle = $('assetEditorTitle');
+const assetEditorBack = $('assetEditorBack');
 
 const tabEls = Array.prototype.slice.call(document.querySelectorAll('.tabs .tab'));
 const viewEls = Array.prototype.slice.call(document.querySelectorAll('[data-view-panel]'));
@@ -96,14 +115,13 @@ document.querySelectorAll('[data-panel]').forEach((panel) => {
 });
 
 const LAYOUT_KEY = 'blockcode.layout.v1';
-const PANEL_LABELS = { toolbox: 'Blocks', workspace: 'Workspace', code: 'Code', stage: 'Stage' };
+const PANEL_LABELS = { toolbox: 'Blocks', workspace: 'Workspace', code: 'Code', stage: 'Watch Preview' };
 const DEFAULT_SIZE = { toolbox: 300, stage: 348 };
 let layoutState = {
   toolbox: DEFAULT_SIZE.toolbox,
   stage: DEFAULT_SIZE.stage,
   collapsed: { toolbox: false, workspace: false, code: false, stage: false }
 };
-let stageCache = { w: 0, h: 0 };
 let stageObserver = null;
 
 function makeBlock(type, params) {
@@ -142,6 +160,16 @@ function isReporter(block) {
 function isHat(block) {
   const def = DEFS[block.type];
   return !!def && (def.action === 'event' || def.action === 'start' || def.hat);
+}
+
+function isClickHat(block) {
+  const def = DEFS[block.type];
+  return !!def && def.action === 'event';
+}
+
+function isStartupHat(block) {
+  const def = DEFS[block.type];
+  return !!def && def.action === 'start';
 }
 
 function isDefine(block) {

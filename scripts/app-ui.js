@@ -11,6 +11,27 @@ function showToast(message) {
   }, 2800);
 }
 
+const buildNoticeEl = $('buildNotice');
+const buildNoticeCloseEl = $('buildNoticeClose');
+const buildNoticeProgressEl = $('buildNoticeProgress');
+const buildNoticeTitleEl = $('buildNoticeTitle');
+const buildNoticeMessageEl = $('buildNoticeMessage');
+
+function showBuildNotice(title, message, status, loading) {
+  buildNoticeEl.classList.toggle('is-error', status === 'error');
+  buildNoticeEl.classList.toggle('is-success', status === 'success');
+  buildNoticeEl.classList.toggle('is-loading', Boolean(loading));
+  buildNoticeEl.setAttribute('aria-busy', String(Boolean(loading)));
+  buildNoticeTitleEl.textContent = title;
+  buildNoticeMessageEl.textContent = message;
+  buildNoticeProgressEl.hidden = !loading;
+  buildNoticeEl.hidden = false;
+}
+
+buildNoticeCloseEl.addEventListener('click', () => {
+  buildNoticeEl.hidden = true;
+});
+
 /* ---------- View controls ---------- */
 
 function initPanels() {
@@ -59,6 +80,9 @@ function initTabs() {
   tabEls.forEach((tab) => {
     tab.addEventListener('click', () => setView(tab.dataset.view));
   });
+  if (assetEditorBack) {
+    assetEditorBack.addEventListener('click', () => setView('assets'));
+  }
 
   const tabsEl = document.querySelector('.tabs');
   if (tabsEl) {
@@ -91,16 +115,71 @@ function initStageObserver() {
 scriptsEl.addEventListener('pointerdown', (event) => {
   const el = event.target.closest('.block');
   if (!el) return;
+  const scriptEl = el.closest('.script');
+  if (scriptEl) bringScriptToFront(Number(scriptEl.dataset.script));
   if (event.target.closest('input')) return;
   if (event.button !== undefined && event.button !== 0) return;
+
+  if (el.classList.contains('reporter')) {
+    const sourceSlot = el.closest('.expr-slot');
+    const sourceBlock = sourceSlot
+      ? findExpressionBlockById(sourceSlot.dataset.blockId)
+      : null;
+    const expression = sourceBlock && sourceSlot
+      ? sourceBlock.params[sourceSlot.dataset.field]
+      : null;
+    if (sourceSlot && isExpression(expression) && expression.id === el.dataset.id) {
+      startExpressionDrag(event, expression, el, sourceSlot);
+      return;
+    }
+    if (!sourceSlot) {
+      const path = parseBlockPath(el.dataset.path);
+      const block = blockAtPath(path);
+      if (block) {
+        startExpressionDrag(event, block, el, null, { path: path });
+        return;
+      }
+    }
+  }
 
   const path = parseBlockPath(el.dataset.path);
   const block = blockAtPath(path);
   if (!block) return;
 
+  const now = performance.now();
+  if (lastBlockClick &&
+      lastBlockClick.id === block.id &&
+      now - lastBlockClick.time <= DOUBLE_CLICK_MS) {
+    selectBlockOnly(block);
+  }
+
   const group = dragGroupAt(path);
   startDrag(event, block, { path }, el, group);
 });
+
+scriptsEl.addEventListener('dblclick', (event) => {
+  if (event.target.closest('input, select, textarea')) return;
+  const el = event.target.closest('.block[data-path]');
+  if (!el || el.classList.contains('reporter')) return;
+  const block = blockAtPath(parseBlockPath(el.dataset.path));
+  if (!block) return;
+
+  event.preventDefault();
+  lastBlockClick = null;
+  selectBlockOnly(block);
+});
+
+canvasEl.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  const factor = Math.exp(-event.deltaY * 0.001);
+  const rect = canvasEl.getBoundingClientRect();
+  setWorkspaceZoom(
+    workspaceZoom * factor,
+    event.clientX - rect.left - canvasEl.clientLeft,
+    event.clientY - rect.top - canvasEl.clientTop
+  );
+}, { passive: false });
 
 runBtn.addEventListener('click', runProgram);
 stopBtn.addEventListener('click', stopProgram);
@@ -146,6 +225,8 @@ document.addEventListener('keydown', (event) => {
 
 copyCodeBtn.addEventListener('click', copyWatchCpp);
 downloadCodeBtn.addEventListener('click', downloadWatchCpp);
+buildAppBtn.addEventListener('click', buildWatchApp);
+uploadBtn.addEventListener('click', uploadWatchApp);
 
 window.addEventListener('resize', () => {
   normalizeLayoutSizes();

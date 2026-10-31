@@ -2,6 +2,10 @@
 
 /* ---------- Watch C++ code generation ---------- */
 
+let previewCodeLines = null;
+let previewCodeBlockId = null;
+let watchCodeLineBlocks = [];
+
 function cppString(value) {
   return '"' + String(value)
     .replace(/\\/g, '\\\\')
@@ -35,6 +39,23 @@ function exprToCpp(value) {
       case 'round': return 'roundf(' + a() + ')';
       case 'random': return 'watch_random(' + a() + ', ' + b() + ')';
       case 'variable': return variableCppName(variableName(value.params.name));
+      case 'listitem': {
+        const list = listCppName(value.params.list);
+        const index = '(int)(' + exprToCpp(value.params.index) + ')';
+        return '((' + index + ' >= 1 && ' + index + ' <= (int)' + list +
+          '.size()) ? strtof(' + list + '[' + index + ' - 1].c_str(), nullptr) : 0.0f)';
+      }
+      case 'listlength': return '(float)' + listCppName(value.params.list) + '.size()';
+      case 'listcontains': {
+        const list = listCppName(value.params.list);
+        return '(std::find(' + list + '.begin(), ' + list + '.end(), ' +
+          cppString(value.params.item) + ') != ' + list + '.end() ? 1.0f : 0.0f)';
+      }
+      case 'equals': return '(' + a() + ' == ' + b() + ' ? 1.0f : 0.0f)';
+      case 'and': return '(' + a() + ' != 0.0f && ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
+      case 'or': return '(' + a() + ' != 0.0f || ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
+      case 'not': return '(' + a() + ' == 0.0f ? 1.0f : 0.0f)';
+      case 'touching': return '(watch_touching(' + cppString(value.params.sprite) + ') ? 1.0f : 0.0f)';
       default: return '0.0f';
     }
   }
@@ -51,16 +72,41 @@ function collectExpressionVariables(value, out) {
   });
 }
 
-function collectVariableNames() {
-  const names = new Set();
-  walkBlocks((block) => {
-    const def = DEFS[block.type] || {};
-    const action = def.action || block.type;
-    if (action === 'setvar' || action === 'changevar') {
-      names.add(variableName(block.params.name));
-    }
-    Object.keys(block.params || {}).forEach((key) => {
-      collectExpressionVariables(block.params[key], names);
+function executableScripts() {
+  return workspace.filter((script) => {
+    const action = script.length && DEFS[script[0].type] && DEFS[script[0].type].action;
+    return script.length > 0 && (isStartupHat(script[0]) || action === 'signal');
+  });
+}
+
+function collectVariableNames(functions) {
+  const names = new Set(workspaceVariables);
+  const scripts = executableScripts().concat(functions.map((definition) => definition.script));
+  scripts.forEach((script) => {
+    walkContainer(script, (block) => {
+      const def = DEFS[block.type] || {};
+      const action = def.action || block.type;
+      if (action === 'setvar' || action === 'changevar') {
+        names.add(variableName(block.params.name));
+      }
+      Object.keys(block.params || {}).forEach((key) => {
+        collectExpressionVariables(block.params[key], names);
+      });
+    });
+  });
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
+}
+
+function listCppName(name) {
+  return 'list_' + cppIdentifier(String(name || '').trim() || 'list');
+}
+
+function collectListNames(functions) {
+  const names = new Set(workspaceLists);
+  const scripts = executableScripts().concat(functions.map((definition) => definition.script));
+  scripts.forEach((script) => {
+    walkContainer(script, (block) => {
+      if (block.params && block.params.list) names.add(String(block.params.list));
     });
   });
   return Array.from(names).sort((a, b) => a.localeCompare(b));
@@ -68,9 +114,12 @@ function collectVariableNames() {
 
 function cppPush(lines, indent, text) {
   lines.push('  '.repeat(indent) + text);
+  if (lines === previewCodeLines) watchCodeLineBlocks.push(previewCodeBlockId);
 }
 
 function emitCppBlock(block, indent, lines) {
+  const previousPreviewBlockId = previewCodeBlockId;
+  previewCodeBlockId = block.id;
   const def = DEFS[block.type] || {};
   const action = def.action || block.type;
 
@@ -79,11 +128,29 @@ function emitCppBlock(block, indent, lines) {
       cppPush(lines, indent, '// when clicked');
       break;
 
+    case 'signal':
+      cppPush(lines, indent, '// when I receive ' + String(block.params.message || ''));
+      break;
+
+    case 'broadcast':
+      cppPush(lines, indent, 'watch_broadcast(' + cppString(block.params.message || '') + ');');
+      break;
+
     case 'start':
       cppPush(lines, indent, '// on start');
       break;
 
     case 'define':
+      break;
+
+    case 'if':
+      cppPush(lines, indent, 'if (' + exprToCpp(block.params.condition) + ' != 0.0f) {');
+      emitCppBlocks(block.children, indent + 1, lines);
+      cppPush(lines, indent, '}');
+      break;
+
+    case 'else':
+      emitCppBlocks(block.children, indent, lines);
       break;
 
     case 'repeat': {
@@ -94,11 +161,10 @@ function emitCppBlock(block, indent, lines) {
     }
 
     case 'forever': {
-      cppPush(lines, indent, 'while (true) {');
+      cppPush(lines, indent, 'while (qos_app_running()) {');
       (block.children || []).forEach((child) => emitCppBlock(child, indent + 1, lines));
-      if (!block.children || !block.children.length) {
-        cppPush(lines, indent + 1, 'watch_wait(0.016f);');
-      }
+      cppPush(lines, indent + 1, 'if (!qos_app_running()) break;');
+      cppPush(lines, indent + 1, 'watch_wait(0.016f);');
       cppPush(lines, indent, '}');
       break;
     }
@@ -133,6 +199,39 @@ function emitCppBlock(block, indent, lines) {
     case 'changevar':
       cppPush(lines, indent, variableCppName(variableName(block.params.name)) + ' += ' + exprToCpp(block.params.value) + ';');
       break;
+
+    case 'listadd':
+      cppPush(lines, indent, listCppName(block.params.list) + '.emplace_back(' + cppString(block.params.item) + ');');
+      break;
+
+    case 'listdelete': {
+      const list = listCppName(block.params.list);
+      const index = 'list_index_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ int ' + index + ' = (int)(' + exprToCpp(block.params.index) + ');');
+      cppPush(lines, indent + 1, 'if (' + index + ' >= 1 && ' + index + ' <= (int)' + list + '.size()) ' + list + '.erase(' + list + '.begin() + ' + index + ' - 1);');
+      cppPush(lines, indent, '}');
+      break;
+    }
+
+    case 'listinsert': {
+      const list = listCppName(block.params.list);
+      const index = 'list_index_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ int ' + index + ' = (int)(' + exprToCpp(block.params.index) + ');');
+      cppPush(lines, indent + 1, 'if (' + index + ' < 1) ' + index + ' = 1;');
+      cppPush(lines, indent + 1, 'if (' + index + ' > (int)' + list + '.size() + 1) ' + index + ' = (int)' + list + '.size() + 1;');
+      cppPush(lines, indent + 1, list + '.insert(' + list + '.begin() + ' + index + ' - 1, ' + cppString(block.params.item) + ');');
+      cppPush(lines, indent, '}');
+      break;
+    }
+
+    case 'listreplace': {
+      const list = listCppName(block.params.list);
+      const index = 'list_index_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ int ' + index + ' = (int)(' + exprToCpp(block.params.index) + ');');
+      cppPush(lines, indent + 1, 'if (' + index + ' >= 1 && ' + index + ' <= (int)' + list + '.size()) ' + list + '[' + index + ' - 1] = ' + cppString(block.params.item) + ';');
+      cppPush(lines, indent, '}');
+      break;
+    }
 
     case 'switchsprite':
       cppPush(lines, indent, 'watch_switch_sprite(' + cppString(block.params.sprite) + ');');
@@ -201,10 +300,333 @@ function emitCppBlock(block, indent, lines) {
     default:
       cppPush(lines, indent, '// unsupported block: ' + block.type);
   }
+  previewCodeBlockId = previousPreviewBlockId;
 }
 
 function emitCppBlocks(blocks, indent, lines) {
-  (blocks || []).forEach((block) => emitCppBlock(block, indent, lines));
+  const items = blocks || [];
+  for (let index = 0; index < items.length; index++) {
+    const block = items[index];
+    const action = (DEFS[block.type] && DEFS[block.type].action) || block.type;
+    const next = items[index + 1];
+    const nextAction = next && ((DEFS[next.type] && DEFS[next.type].action) || next.type);
+    if (action === 'if' && nextAction === 'else') {
+      previewCodeBlockId = block.id;
+      cppPush(lines, indent, 'if (' + exprToCpp(block.params.condition) + ' != 0.0f) {');
+      emitCppBlocks(block.children, indent + 1, lines);
+      cppPush(lines, indent, '} else {');
+      emitCppBlocks(next.children, indent + 1, lines);
+      cppPush(lines, indent, '}');
+      index++;
+    } else {
+      emitCppBlock(block, indent, lines);
+    }
+  }
+}
+
+const APP_SPRITE_SIZE = 64;
+const APP_BACKGROUND_SIZE = { width: 410, height: 502 };
+
+function usedSpriteIds() {
+  const ids = new Set();
+  const selected = typeof activeSprite === 'function' ? activeSprite() : null;
+  if (selected && selected.id) ids.add(selected.id);
+  walkBlocks((block) => {
+    const def = DEFS[block.type] || {};
+    if ((def.action || block.type) === 'switchsprite' && block.params.sprite) {
+      ids.add(String(block.params.sprite));
+    }
+  });
+  if (ids.size > 12) {
+    throw new Error('This app uses ' + ids.size + ' sprites. A watch app can embed up to 12; remove some sprite changes and retry.');
+  }
+  return Array.from(ids);
+}
+
+function usedBackgroundIds() {
+  const ids = new Set();
+  const selected = typeof activeBackground === 'function' ? activeBackground() : null;
+  if (selected && selected.id) ids.add(selected.id);
+  walkBlocks((block) => {
+    const def = DEFS[block.type] || {};
+    if ((def.action || block.type) === 'switchbg' && block.params.background) {
+      ids.add(String(block.params.background));
+    }
+  });
+  return Array.from(ids);
+}
+
+function rasterizeBackground(background) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const width = APP_BACKGROUND_SIZE.width;
+    const height = APP_BACKGROUND_SIZE.height;
+    const escapeXml = (value) => String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    const css = [
+      'background-color:#070c18',
+      'background-image:' + String(background.css || 'none'),
+      'background-size:' + String(background.size || 'cover'),
+      'background-position:' + String(background.position || 'center'),
+      'background-repeat:' + String(background.repeat || 'no-repeat')
+    ].join(';');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' +
+      width + '" height="' + height + '" style="' + escapeXml(css) + '"></svg>';
+    const objectUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Could not rasterize background "' + (background.name || background.id) +
+        '". Open the web UI in Chrome or Edge at http://127.0.0.1:8765/ and retry.'));
+    };
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('2D canvas is unavailable.');
+        ctx.drawImage(image, 0, 0, width, height);
+        const rgba = ctx.getImageData(0, 0, width, height).data;
+        const pixels = new Uint8Array(width * height * 3);
+        for (let srcIndex = 0, dst = 0; srcIndex < rgba.length; srcIndex += 4, dst += 3) {
+          const rgb565 = ((rgba[srcIndex] & 0xF8) << 8) |
+            ((rgba[srcIndex + 1] & 0xFC) << 3) | (rgba[srcIndex + 2] >> 3);
+          pixels[dst] = rgb565 >> 8;
+          pixels[dst + 1] = rgb565 & 0xFF;
+          pixels[dst + 2] = rgba[srcIndex + 3];
+        }
+        resolve({ id: background.id, width: width, height: height, pixels: pixels });
+      } catch (error) {
+        reject(new Error('Could not read background "' + (background.name || background.id) + '": ' +
+          error.message + ' Open the web UI at http://127.0.0.1:8765/ and retry.'));
+      }
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function prepareBackgroundAssets() {
+  const backgrounds = new Map(allBackgrounds().map((background) => [String(background.id), background]));
+  const assets = [];
+  for (const id of usedBackgroundIds()) {
+    const background = backgrounds.get(String(id));
+    if (!background) continue;
+    const asset = await rasterizeBackground(background);
+    assets.push(asset);
+  }
+  return assets;
+}
+
+function rasterizeSprite(sprite) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = APP_SPRITE_SIZE;
+        canvas.height = APP_SPRITE_SIZE;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('2D canvas is unavailable.');
+
+        const sourceW = image.naturalWidth || image.width;
+        const sourceH = image.naturalHeight || image.height;
+        if (!sourceW || !sourceH) throw new Error('Image has no dimensions.');
+        const scale = Math.min((APP_SPRITE_SIZE - 4) / sourceW, (APP_SPRITE_SIZE - 4) / sourceH);
+        const drawW = Math.max(1, Math.round(sourceW * scale));
+        const drawH = Math.max(1, Math.round(sourceH * scale));
+        ctx.clearRect(0, 0, APP_SPRITE_SIZE, APP_SPRITE_SIZE);
+        ctx.drawImage(image, (APP_SPRITE_SIZE - drawW) / 2, (APP_SPRITE_SIZE - drawH) / 2, drawW, drawH);
+
+        const rgba = ctx.getImageData(0, 0, APP_SPRITE_SIZE, APP_SPRITE_SIZE).data;
+        const pixels = new Uint8Array(APP_SPRITE_SIZE * APP_SPRITE_SIZE * 3);
+        for (let src = 0, dst = 0; src < rgba.length; src += 4, dst += 3) {
+          const rgb565 = ((rgba[src] & 0xF8) << 8) | ((rgba[src + 1] & 0xFC) << 3) | (rgba[src + 2] >> 3);
+          /* LV_COLOR_16_SWAP=y in Quantum OS: RGB565 high byte, low byte, then alpha. */
+          pixels[dst] = rgb565 >> 8;
+          pixels[dst + 1] = rgb565 & 0xFF;
+          pixels[dst + 2] = rgba[src + 3];
+        }
+        resolve({ id: sprite.id, width: APP_SPRITE_SIZE, height: APP_SPRITE_SIZE, pixels: pixels });
+      } catch (error) {
+        reject(new Error('Could not read sprite "' + (sprite.name || sprite.id) + '": ' + error.message +
+          ' Open the web UI at http://127.0.0.1:8765/ (not as a file:// page), then retry.'));
+      }
+    };
+    image.onerror = () => reject(new Error('Could not load sprite "' + (sprite.name || sprite.id) + '".'));
+    image.src = sprite.src;
+  });
+}
+
+async function prepareSpriteAssets() {
+  const sprites = allSprites();
+  const byId = new Map(sprites.map((sprite) => [String(sprite.id), sprite]));
+  const assets = [];
+  for (const id of usedSpriteIds()) {
+    const sprite = byId.get(String(id));
+    if (!sprite || !sprite.src) continue;
+    assets.push(await rasterizeSprite(sprite));
+  }
+  return assets;
+}
+
+function compressLz4Block(input) {
+  const output = [];
+  const positions = new Map();
+  let anchor = 0;
+  let index = 0;
+  const hashAt = (offset) => (
+    (input[offset] * 0x1e35a7bd ^
+      input[offset + 1] * 0x1e35a7bd << 8 ^
+      input[offset + 2] * 0x1e35a7bd << 16 ^
+      input[offset + 3] * 0x1e35a7bd << 24) >>> 0
+  );
+  const pushLength = (length) => {
+    while (length >= 255) {
+      output.push(255);
+      length -= 255;
+    }
+    output.push(length);
+  };
+
+  while (index + 4 <= input.length) {
+    const hash = hashAt(index);
+    const reference = positions.get(hash);
+    positions.set(hash, index);
+    if (reference === undefined || index - reference > 65535 ||
+        input[reference] !== input[index] ||
+        input[reference + 1] !== input[index + 1] ||
+        input[reference + 2] !== input[index + 2] ||
+        input[reference + 3] !== input[index + 3]) {
+      index++;
+      continue;
+    }
+
+    let matchLength = 4;
+    while (index + matchLength < input.length &&
+        input[reference + matchLength] === input[index + matchLength]) {
+      matchLength++;
+    }
+    const literalLength = index - anchor;
+    const tokenIndex = output.length;
+    output.push((Math.min(literalLength, 15) << 4) |
+      Math.min(matchLength - 4, 15));
+    if (literalLength >= 15) pushLength(literalLength - 15);
+    for (let literal = anchor; literal < index; literal++) output.push(input[literal]);
+    const distance = index - reference;
+    output.push(distance & 0xFF, distance >>> 8);
+    if (matchLength - 4 >= 15) pushLength(matchLength - 19);
+    output[tokenIndex] &= 0xFF;
+
+    const end = index + matchLength;
+    for (let cursor = index + 1; cursor + 4 <= end; cursor++) {
+      positions.set(hashAt(cursor), cursor);
+    }
+    index = end;
+    anchor = end;
+  }
+
+  const trailing = input.length - anchor;
+  output.push(Math.min(trailing, 15) << 4);
+  if (trailing >= 15) pushLength(trailing - 15);
+  for (let cursor = anchor; cursor < input.length; cursor++) output.push(input[cursor]);
+  return Uint8Array.from(output);
+}
+
+function emitCppSpriteAssets(assets, lines) {
+  const add = (line) => lines.push(line);
+  add('struct WatchSpriteAsset { const char *id; const uint8_t *pixels; uint16_t width; uint16_t height; };');
+  (assets || []).forEach((asset, index) => {
+    add('static const uint8_t watch_sprite_pixels_' + index + '[] = {');
+    for (let start = 0; start < asset.pixels.length; start += 16) {
+      const row = Array.from(asset.pixels.slice(start, start + 16))
+        .map((value) => '0x' + value.toString(16).padStart(2, '0'));
+      add('  ' + row.join(', ') + ',');
+    }
+    add('};');
+  });
+  add('static const WatchSpriteAsset watch_sprite_assets[] = {');
+  (assets || []).forEach((asset, index) => {
+    add('  {' + cppString(asset.id) + ', watch_sprite_pixels_' + index + ', ' + asset.width + ', ' + asset.height + '},');
+  });
+  add('  {"", 0, 0, 0}');
+  add('};');
+  add('static const WatchSpriteAsset *watch_find_sprite(const char *id) {');
+  add('  for (unsigned i = 0; watch_sprite_assets[i].pixels; ++i) {');
+  add('    if (strcmp(watch_sprite_assets[i].id, id ? id : "") == 0) return &watch_sprite_assets[i];');
+  add('  }');
+  add('  return 0;');
+  add('}');
+  add('');
+}
+
+function emitCppBackgroundAssets(assets, lines) {
+  const add = (line) => lines.push(line);
+  const compressedAssets = (assets || []).map((asset) => ({
+    asset: asset,
+    compressed: compressLz4Block(asset.pixels)
+  }));
+  const maxPixels = compressedAssets.length
+    ? compressedAssets.reduce((maximum, item) => Math.max(maximum, item.asset.pixels.length), 0)
+    : APP_BACKGROUND_SIZE.width * APP_BACKGROUND_SIZE.height * 3;
+  add('static const size_t WATCH_BACKGROUND_MAX_BYTES = ' + maxPixels + ';');
+  add('static bool watch_lz4_decode(const uint8_t *src, size_t src_size, uint8_t *dst, size_t dst_size) {');
+  add('  size_t in = 0, out = 0;');
+  add('  while (in < src_size) {');
+  add('    uint8_t token = src[in++];');
+  add('    size_t literals = token >> 4;');
+  add('    if (literals == 15) {');
+  add('      uint8_t extra;');
+  add('      do { if (in >= src_size) return false; extra = src[in++]; literals += extra; } while (extra == 255);');
+  add('    }');
+  add('    if (literals > src_size - in || literals > dst_size - out) return false;');
+  add('    memcpy(dst + out, src + in, literals);');
+  add('    in += literals; out += literals;');
+  add('    if (in == src_size) return out == dst_size;');
+  add('    if (in + 2 > src_size) return false;');
+  add('    size_t offset = src[in] | ((size_t)src[in + 1] << 8);');
+  add('    in += 2;');
+  add('    if (!offset || offset > out) return false;');
+  add('    size_t match = (token & 15) + 4;');
+  add('    if ((token & 15) == 15) {');
+  add('      uint8_t extra;');
+  add('      do { if (in >= src_size) return false; extra = src[in++]; match += extra; } while (extra == 255);');
+  add('    }');
+  add('    if (match > dst_size - out) return false;');
+  add('    for (size_t i = 0; i < match; ++i) dst[out + i] = dst[out + i - offset];');
+  add('    out += match;');
+  add('  }');
+  add('  return out == dst_size;');
+  add('}');
+  add('struct WatchBackgroundAsset { const char *id; const uint8_t *compressed; size_t compressed_size; uint16_t width; uint16_t height; };');
+  compressedAssets.forEach((item, index) => {
+    const compressed = item.compressed;
+    add('static const uint8_t watch_background_compressed_' + index + '[] = {');
+    for (let start = 0; start < compressed.length; start += 16) {
+      const row = Array.from(compressed.slice(start, start + 16))
+        .map((value) => '0x' + value.toString(16).padStart(2, '0'));
+      add('  ' + row.join(', ') + ',');
+    }
+    add('};');
+  });
+  add('static const WatchBackgroundAsset watch_background_assets[] = {');
+  compressedAssets.forEach((item, index) => {
+    const asset = item.asset;
+    add('  {' + cppString(asset.id) + ', watch_background_compressed_' + index + ', ' +
+      item.compressed.length + ', ' + asset.width + ', ' + asset.height + '},');
+  });
+  add('  {"", 0, 0, 0, 0}');
+  add('};');
+  add('static const WatchBackgroundAsset *watch_find_background(const char *id) {');
+  add('  for (unsigned i = 0; watch_background_assets[i].compressed; ++i) {');
+  add('    if (strcmp(watch_background_assets[i].id, id ? id : "") == 0) return &watch_background_assets[i];');
+  add('  }');
+  add('  return 0;');
+  add('}');
+  add('');
 }
 
 function watchCppActionPrelude() {
@@ -217,13 +639,15 @@ function watchCppActionPrelude() {
   ];
 }
 
-function watchCppActionSupport() {
+function watchCppActionSupport(defaultSpriteId, defaultBackgroundId) {
   return [
     'static float watch_x = 205.0f;',
     'static float watch_y = 251.0f;',
     'static float watch_heading = 0.0f;',
     'static float watch_size = 100.0f;',
     'static int watch_visible = 1;',
+    'static const char *watch_sprite = ' + cppString(defaultSpriteId || 'rocket') + ';',
+    'static const char *watch_background = ' + cppString(defaultBackgroundId || 'mission') + ';',
     '',
     'static float watch_clamp(float value, float low, float high) {',
     '  if (value < low) return low;',
@@ -232,11 +656,17 @@ function watchCppActionSupport() {
     '}',
     '',
     'static void watch_sleep_ms(unsigned long ms) {',
-    '  while (ms > 0) {',
+    '  while (ms > 0 && qos_app_running()) {',
     '    unsigned long chunk = ms > 1000UL ? 1000UL : ms;',
+    '    if (chunk > 16UL) chunk = 16UL;',
     '    usleep((useconds_t)(chunk * 1000UL));',
     '    ms -= chunk;',
     '  }',
+    '}',
+    '',
+    'static float watch_play_speech(const char *text) {',
+    '  (void)text;  // The local build service replaces this with embedded voice clips.',
+    '  return 0.0f;',
     '}',
     '',
     'static float watch_random(float low, float high) {',
@@ -253,29 +683,54 @@ function watchCppActionSupport() {
 
 function watchCppActionCode() {
   return [
+    'static void watch_render(void) {',
+    '  const WatchSpriteAsset *asset = watch_find_sprite(watch_sprite);',
+    '  qos_app_draw_image(watch_x, watch_y, watch_heading, watch_size, watch_visible, watch_sprite, watch_background,',
+    '               asset ? asset->pixels : 0, asset ? asset->width : 0, asset ? asset->height : 0);',
+    '}',
+    '',
     'void watch_goto_start(void) {',
     '  watch_x = 205.0f;',
     '  watch_y = 251.0f;',
     '  watch_heading = 0.0f;',
     '  watch_size = 100.0f;',
     '  watch_visible = 1;',
+    '  watch_render();',
+    '  watch_sleep_ms(360);',
     '}',
     '',
     'void watch_move(float steps) {',
     '  const float radians = watch_heading * 0.0174532925f;',
-    '  watch_x = watch_clamp(watch_x + cosf(radians) * steps * 1.6f, 40.0f, 370.0f);',
-    '  watch_y = watch_clamp(watch_y + sinf(radians) * steps * 1.6f, 40.0f, 462.0f);',
-    '  printf("[watch] position %.1f, %.1f\\n", watch_x, watch_y);',
+    '  const float start_x = watch_x;',
+    '  const float start_y = watch_y;',
+    '  const float end_x = watch_clamp(start_x + cosf(radians) * steps * 1.6f, 40.0f, 370.0f);',
+    '  const float end_y = watch_clamp(start_y + sinf(radians) * steps * 1.6f, 40.0f, 462.0f);',
+    '  for (int frame = 1; frame <= 24 && qos_app_running(); ++frame) {',
+    '    float t = (float)frame * 0.041666667f;',
+    '    t = t * t * (3.0f - 2.0f * t);',
+    '    watch_x = start_x + (end_x - start_x) * t;',
+    '    watch_y = start_y + (end_y - start_y) * t;',
+    '    watch_render();',
+    '    watch_sleep_ms(16);',
+    '  }',
     '}',
     '',
     'void watch_turn(float degrees) {',
-    '  watch_heading = fmodf(watch_heading + degrees, 360.0f);',
-    '  if (watch_heading < 0.0f) watch_heading += 360.0f;',
+    '  const float start = watch_heading;',
+    '  for (int frame = 1; frame <= 20 && qos_app_running(); ++frame) {',
+    '    float t = (float)frame * 0.05f;',
+    '    t = t * t * (3.0f - 2.0f * t);',
+    '    watch_heading = fmodf(start + degrees * t, 360.0f);',
+    '    if (watch_heading < 0.0f) watch_heading += 360.0f;',
+    '    watch_render();',
+    '    watch_sleep_ms(16);',
+    '  }',
     '}',
     '',
     'void watch_point(float degrees) {',
     '  watch_heading = fmodf(degrees, 360.0f);',
     '  if (watch_heading < 0.0f) watch_heading += 360.0f;',
+    '  watch_render();',
     '}',
     '',
     'void watch_wait(float seconds) {',
@@ -285,18 +740,18 @@ function watchCppActionCode() {
     '}',
     '',
     'void watch_say(const char *text, float seconds) {',
-    '  printf("[watch] %s\\n", text);',
-    '  watch_wait(seconds);',
+    '  qos_app_say(text);',
+    '  float speech_seconds = watch_play_speech(text);',
+    '  if (seconds > speech_seconds) watch_wait(seconds - speech_seconds);',
     '}',
     '',
     'void watch_speak(const char *text) {',
-    '  printf("[watch] speak: %s\\n", text);',
-    '  watch_wait(1.2f);',
+    '  qos_app_say(text);',
+    '  watch_play_speech(text);',
     '}',
     '',
     'void watch_tone(float hz, float seconds) {',
-    '  printf("[watch] tone %.0f Hz for %.2f s\\n", hz, seconds);',
-    '  watch_wait(seconds);',
+    '  qos_app_tone(hz, seconds);',
     '}',
     '',
     'void watch_stop_sounds(void) {',
@@ -304,45 +759,68 @@ function watchCppActionCode() {
     '}',
     '',
     'void watch_switch_sprite(const char *name) {',
-    '  printf("[watch] sprite %s\\n", name);',
+    '  watch_sprite = name;',
+    '  watch_render();',
     '}',
     '',
     'void watch_switch_background(const char *name) {',
-    '  printf("[watch] background %s\\n", name);',
+    '  watch_background = name;',
+    '  const WatchBackgroundAsset *asset = watch_find_background(name);',
+    '  size_t pixel_bytes = asset ? (size_t)asset->width * asset->height * 3 : 0;',
+    '  uint8_t *pixels = asset && pixel_bytes <= WATCH_BACKGROUND_MAX_BYTES',
+    '    ? (uint8_t *)malloc(pixel_bytes) : 0;',
+    '  if (pixels && watch_lz4_decode(asset->compressed, asset->compressed_size, pixels, pixel_bytes))',
+    '    qos_app_set_background_image(pixels, asset->width, asset->height);',
+    '  else qos_app_set_background_image(0, 0, 0);',
+    '  free(pixels);',
+    '  watch_render();',
     '}',
     '',
     'void watch_show_sprite(void) {',
     '  watch_visible = 1;',
+    '  watch_render();',
     '}',
     '',
     'void watch_hide_sprite(void) {',
     '  watch_visible = 0;',
+    '  watch_render();',
     '}',
     '',
     'void watch_set_size(float percent) {',
     '  watch_size = watch_clamp(percent, 10.0f, 400.0f);',
-    '  printf("[watch] size %.0f%%\\n", watch_size);',
+    '  watch_render();',
     '}',
     '',
     'void watch_goto_xy(float x, float y) {',
     '  watch_x = watch_clamp(205.0f + x, 40.0f, 370.0f);',
     '  watch_y = watch_clamp(251.0f - y, 40.0f, 462.0f);',
-    '  printf("[watch] position %.1f, %.1f\\n", watch_x, watch_y);',
+    '  watch_render();',
     '}',
     '',
     'void watch_glide(float x, float y, float seconds) {',
-    '  watch_goto_xy(x, y);',
-    '  watch_wait(seconds);',
+    '  float start_x = watch_x;',
+    '  float start_y = watch_y;',
+    '  float end_x = watch_clamp(205.0f + x, 40.0f, 370.0f);',
+    '  float end_y = watch_clamp(251.0f - y, 40.0f, 462.0f);',
+    '  int frames = (int)(seconds * 30.0f);',
+    '  if (frames < 1) frames = 1;',
+    '  for (int i = 1; i <= frames && qos_app_running(); ++i) {',
+    '    float t = (float)i / (float)frames;',
+    '    watch_x = start_x + (end_x - start_x) * t;',
+    '    watch_y = start_y + (end_y - start_y) * t;',
+    '    watch_render();',
+    '    watch_wait(seconds / (float)frames);',
+    '  }',
     '}',
     '',
     'void watch_change_x(float dx) {',
     '  watch_x = watch_clamp(watch_x + dx, 40.0f, 370.0f);',
-    '  printf("[watch] position %.1f, %.1f\\n", watch_x, watch_y);',
+    '  watch_render();',
     '}',
     '',
     'void watch_change_y(float dy) {',
     '  watch_y = watch_clamp(watch_y - dy, 40.0f, 462.0f);',
-    '  printf("[watch] position %.1f, %.1f\\n", watch_x, watch_y);',
+    '  watch_render();',
     '}',
     ''
   ];
@@ -356,25 +834,64 @@ function uniqueFunctionDefinitions() {
   return Array.from(byName.values());
 }
 
-function generateWatchCpp() {
+function generateWatchCpp(spriteAssets, backgroundAssets) {
   const lines = [];
   const add = (line) => lines.push(line === undefined ? '' : line);
   const functions = uniqueFunctionDefinitions();
-  const variables = collectVariableNames();
+  const variables = collectVariableNames(functions);
+  const lists = collectListNames(functions);
 
   add('// Generated by BlockCode.');
-  add('// ESP-IDF ELF app. Build it to blockcode-app.app.elf, then copy the');
-  add('// ELF to the watch storage and launch it from the watch app menu.');
-  add('// The watch_* functions below are generated stand-ins. Replace their');
-  add('// bodies with display and hardware calls for the real watch.');
+  add('// Built into an ESP-IDF ELF and wrapped in a Quantum OS .app package.');
+  add('// The watch firmware launches this app on the watch display.');
+  add('// The watch_* actions call Quantum OS display hooks exported by the firmware.');
   add('');
 
   watchCppActionPrelude().forEach((line) => add(line));
-  watchCppActionSupport().forEach((line) => add(line));
+  add('#include <stdint.h>');
+  add('#include <string.h>');
+  add('#include <algorithm>');
+  add('#include <cstdlib>');
+  add('#include <string>');
+  add('#include <vector>');
+  add('');
+  add('extern "C" bool qos_app_running(void);');
+  add('extern "C" void qos_app_draw_image(float, float, float, float, int, const char *, const char *, const uint8_t *, uint16_t, uint16_t);');
+  add('extern "C" int qos_app_set_background_image(const uint8_t *, uint16_t, uint16_t);');
+  add('extern "C" void qos_app_say(const char *);');
+  add('extern "C" void qos_app_tone(float, float);');
+  add('extern "C" void qos_app_play_audio(const int16_t *, uint32_t);');
+  add('');
+  emitCppSpriteAssets(spriteAssets || [], lines);
+  emitCppBackgroundAssets(backgroundAssets || [], lines);
+  const defaultSprite = typeof activeSprite === 'function' ? activeSprite() : null;
+  const defaultBackground = typeof activeBackground === 'function' ? activeBackground() : null;
+  watchCppActionSupport(defaultSprite && defaultSprite.id, defaultBackground && defaultBackground.id).forEach((line) => add(line));
+  add('static bool watch_touching(const char *target) {');
+  add('  if (!target) return false;');
+  add('  const float radius = 32.0f * (watch_size + 100.0f) / 100.0f;');
+  add('  if (strcmp(target, "edge") == 0) return watch_x - radius <= 40.0f || watch_x + radius >= 370.0f || watch_y - radius <= 40.0f || watch_y + radius >= 462.0f;');
+  allSprites().forEach((sprite) => {
+    const position = spritePreviewPositions[sprite.id] || defaultSpritePreviewPosition(sprite.id);
+    const x = formatFloat(position.x * 4.1);
+    const y = formatFloat(position.y * 5.02);
+    add('  if (strcmp(target, ' + cppString(sprite.id) + ') == 0) return strcmp(watch_sprite, target) != 0 && fabsf(watch_x - ' +
+      x + ') <= radius && fabsf(watch_y - ' + y + ') <= radius;');
+  });
+  add('  return false;');
+  add('}');
+  add('static void watch_broadcast(const char *message);');
+  add('');
 
   if (variables.length) {
     add('// Program variables');
     variables.forEach((name) => add('static float ' + variableCppName(name) + ' = 0.0f;'));
+    add('');
+  }
+
+  if (lists.length) {
+    add('// Program lists');
+    lists.forEach((name) => add('static std::vector<std::string> ' + listCppName(name) + ';'));
     add('');
   }
 
@@ -400,24 +917,39 @@ function generateWatchCpp() {
   });
 
   const entryNames = [];
+  const signalHandlers = [];
   workspace.forEach((script, scriptIndex) => {
-    if (!script.length || isDefine(script[0])) return;
+    if (!script.length || isDefine(script[0]) || !isHat(script[0])) return;
     const name = 'stack' + (scriptIndex + 1);
-    const hat = isHat(script[0]);
-    if (hat) entryNames.push(name);
-
-    add(hat
-      ? '// Stack ' + (scriptIndex + 1) + ': entry point'
-      : '// Stack ' + (scriptIndex + 1) + ': not run (no hat block)');
+    const clickStack = isClickHat(script[0]);
+    const signalHat = (DEFS[script[0].type] || {}).action === 'signal';
+    if (signalHat) signalHandlers.push({ message: script[0].params.message || '', name: name });
+    else if (!clickStack && isStartupHat(script[0])) entryNames.push(name);
+    add(clickStack
+      ? '// Click-triggered stack; invoked by clicking its sprite in the preview.'
+      : (signalHat
+        ? '// Signal-triggered stack: ' + String(script[0].params.message || '')
+        : '// Stack ' + (scriptIndex + 1) + ': entry point'));
     add('static void ' + name + '(void) {');
-    emitCppBlocks(script, 1, lines);
+    emitCppBlocks(clickStack || signalHat ? script.slice(1) : script, 1, lines);
     add('}');
     add('');
   });
 
+  add('static void watch_broadcast(const char *message) {');
+  add('  if (!message) return;');
+  signalHandlers.forEach((handler) => {
+    add('  if (strcmp(message, ' + cppString(handler.message) + ') == 0) ' + handler.name + '();');
+  });
+  add('}');
+  add('');
+
   add('extern "C" int main(int argc, char **argv) {');
   add('  (void)argc;');
   add('  (void)argv;');
+  add('  watch_switch_sprite(' + cppString(defaultSprite && defaultSprite.id || 'rocket') + ');');
+  add('  watch_switch_background(' + cppString(defaultBackground && defaultBackground.id || 'mission') + ');');
+  add('  watch_wait(0.14f);  // match the web preview start delay');
   if (entryNames.length) {
     entryNames.forEach((name) => add('  ' + name + '();'));
   } else {
@@ -432,21 +964,30 @@ function generateWatchCpp() {
 
 function generateWatchCppPreview() {
   const lines = [];
-  const add = (line) => lines.push(line === undefined ? '' : line);
-  const blockCount = workspace.reduce((total, script) => total + script.length, 0);
+  previewCodeLines = lines;
+  watchCodeLineBlocks = [];
+  const add = (line, block) => {
+    lines.push(line === undefined ? '' : line);
+    watchCodeLineBlocks.push(block ? block.id : null);
+  };
   const functions = uniqueFunctionDefinitions();
+  const entries = executableScripts();
+  const clickScripts = workspace.filter((script) => script.length > 0 && isClickHat(script[0]));
   const entryNames = [];
 
   add('// Preview only. Copy or Download adds the full C++ app file.');
   add('');
 
-  if (!blockCount) {
-    add('// No blocks yet');
+  if (!entries.length && !clickScripts.length && !functions.length) {
+    add('// No runnable blocks yet');
+    previewCodeLines = null;
     return lines.join('\n');
   }
 
   add('// Block action functions:');
   watchCppActionCode().forEach((line) => add(line));
+  add('static void watch_broadcast(const char *message);');
+  add('');
 
   if (functions.length) {
     add('// User function prototypes');
@@ -457,26 +998,40 @@ function generateWatchCppPreview() {
   }
 
   functions.forEach((definition) => {
-    add('// Function: ' + definition.name);
-    add('static void ' + functionCppName(definition.name) + '(void) {');
+    const definitionBlock = definition.script[0];
+    add('// Function: ' + definition.name, definitionBlock);
+    add('static void ' + functionCppName(definition.name) + '(void) {', definitionBlock);
     emitCppBlocks(definition.script.slice(1), 1, lines);
-    add('}');
+    add('}', definitionBlock);
     add('');
   });
 
+  const signalHandlers = [];
   workspace.forEach((script, scriptIndex) => {
-    if (!script.length || isDefine(script[0])) return;
+    if (!script.length || isDefine(script[0]) || !isHat(script[0])) return;
     const name = 'stack' + (scriptIndex + 1);
-    const hat = isHat(script[0]);
-    if (hat) entryNames.push(name);
-
-    add('// Stack ' + (scriptIndex + 1) + ': ' +
-      (hat ? 'runs when started' : 'not used (add an "on start" block)'));
-    add('static void ' + name + '(void) {');
-    emitCppBlocks(script, 1, lines);
-    add('}');
+    const clickStack = isClickHat(script[0]);
+    const signalHat = (DEFS[script[0].type] || {}).action === 'signal';
+    if (signalHat) signalHandlers.push({ message: script[0].params.message || '', name: name });
+    else if (!clickStack && isStartupHat(script[0])) entryNames.push(name);
+    add(clickStack
+      ? '// Click-triggered stack; invoked by clicking its sprite in the preview.'
+      : (signalHat
+        ? '// Signal-triggered stack: ' + String(script[0].params.message || '')
+        : '// Stack ' + (scriptIndex + 1) + ': runs when started'), script[0]);
+    add('static void ' + name + '(void) {', script[0]);
+    emitCppBlocks(clickStack || signalHat ? script.slice(1) : script, 1, lines);
+    add('}', script[0]);
     add('');
   });
+
+  add('static void watch_broadcast(const char *message) {');
+  add('  if (!message) return;');
+  signalHandlers.forEach((handler) => {
+    add('  if (strcmp(message, ' + cppString(handler.message) + ') == 0) ' + handler.name + '();');
+  });
+  add('}');
+  add('');
 
   add('int main(int argc, char **argv) {');
   if (entryNames.length) {
@@ -487,6 +1042,7 @@ function generateWatchCppPreview() {
   add('}');
   add('');
 
+  previewCodeLines = null;
   return lines.join('\n');
 }
 
@@ -535,8 +1091,467 @@ function scrollWatchToFocus(focusBlockId) {
   }
 }
 
+function explainCodeBlock(block) {
+  const def = DEFS[block.type] || {};
+  const label = def.label || block.type;
+  const action = def.action || block.type;
+  const param = (key, fallback) => {
+    const value = block.params ? block.params[key] : undefined;
+    if (value && typeof value === 'object') return 'a calculated value';
+    if (value === undefined || value === null || value === '') {
+      return fallback === undefined ? '?' : fallback;
+    }
+    return String(value);
+  };
+
+  let text;
+  switch (action) {
+    case 'start':
+      text = 'Runs this stack once when the app starts. main() calls it after the first sprite and background are set.';
+      break;
+    case 'event':
+      text = 'Runs this stack when its sprite is clicked in the watch preview.';
+      break;
+    case 'signal':
+      text = 'Runs when another stack sends the signal "' + param('message', '') + '".';
+      break;
+    case 'broadcast':
+      text = 'Sends the signal "' + param('message', '') + '" to every stack listening for it.';
+      break;
+    case 'define':
+      text = 'Defines the reusable function "' + param('name', 'unnamed') + '". A call block runs its blocks and returns here.';
+      break;
+    case 'call':
+      text = 'Calls the function "' + param('name', 'unnamed') + '" and runs its blocks before continuing.';
+      break;
+    case 'if':
+      text = 'Runs the blocks inside only while the condition is true.';
+      break;
+    case 'else':
+      text = 'Runs when the matching if condition is false.';
+      break;
+    case 'repeat':
+      text = 'Repeats the blocks inside ' + param('times', '0') + ' times.';
+      break;
+    case 'forever':
+      text = 'Repeats the blocks inside until Stop is pressed, pausing briefly each frame.';
+      break;
+    case 'move':
+      text = 'Moves the sprite ' + param('steps', '0') + ' steps along its heading. watch_move() eases the motion over 24 frames and clamps it to the watch screen.';
+      break;
+    case 'turn':
+      text = 'Turns the sprite ' + param('deg', '0') + '°. watch_turn() eases the rotation over 20 frames and wraps the heading to 0–360°.';
+      break;
+    case 'goto':
+      text = 'Resets the sprite to the center with heading 0°, size 100%, and visible. watch_goto_start() redraws and waits 360 ms.';
+      break;
+    case 'wait':
+      text = 'Pauses for ' + param('secs', '0') + ' seconds. watch_wait() sleeps in short chunks while qos_app_running() is true, so Stop stays responsive.';
+      break;
+    case 'stop':
+      text = 'Stops this stack immediately by returning from its generated function.';
+      break;
+    case 'setvar':
+      text = 'Sets variable "' + param('name', 'variable') + '" to ' + param('value', '0') + '.';
+      break;
+    case 'changevar':
+      text = 'Adds ' + param('value', '0') + ' to variable "' + param('name', 'variable') + '".';
+      break;
+    case 'listadd':
+      text = 'Adds "' + param('item', '') + '" to the end of list "' + param('list', 'list') + '".';
+      break;
+    case 'listdelete':
+      text = 'Deletes item ' + param('index', '1') + ' from list "' + param('list', 'list') + '".';
+      break;
+    case 'listinsert':
+      text = 'Inserts "' + param('item', '') + '" at position ' + param('index', '1') + ' in list "' + param('list', 'list') + '".';
+      break;
+    case 'listreplace':
+      text = 'Replaces item ' + param('index', '1') + ' in list "' + param('list', 'list') + '" with "' + param('item', '') + '".';
+      break;
+    case 'switchsprite':
+      text = 'Switches the active sprite to "' + param('sprite', 'sprite') + '" and redraws the watch.';
+      break;
+    case 'switchbg':
+      text = 'Switches to background "' + param('background', 'background') + '". watch_switch_background() decompresses the embedded LZ4 image, sends it to the watch, then frees the buffer.';
+      break;
+    case 'show':
+      text = 'Makes the sprite visible and redraws the watch.';
+      break;
+    case 'hide':
+      text = 'Hides the sprite and redraws the watch.';
+      break;
+    case 'setsize':
+      text = 'Sets the sprite size to ' + param('size', '100') + '% (clamped to 10–400%) and redraws.';
+      break;
+    case 'gotoxy':
+      text = 'Moves the sprite instantly to x ' + param('x', '0') + ', y ' + param('y', '0') + '. Watch coordinates put 0,0 at the center.';
+      break;
+    case 'glide':
+      text = 'Glides to x ' + param('x', '0') + ', y ' + param('y', '0') + ' over ' + param('secs', '1') + ' seconds at about 30 frames per second.';
+      break;
+    case 'changex':
+      text = 'Changes x by ' + param('dx', '0') + ' pixels and clamps the sprite to the screen.';
+      break;
+    case 'changey':
+      text = 'Changes y by ' + param('dy', '0') + ' pixels (up is positive) and clamps the sprite to the screen.';
+      break;
+    case 'point':
+      text = 'Points the sprite at ' + param('deg', '0') + '° instantly.';
+      break;
+    case 'say':
+      text = 'Shows "' + param('text', 'Hello from BlockCode') + '" for ' + param('secs', '1') + ' seconds. watch_say() draws the bubble, plays the embedded speech clip, then waits the remaining time.';
+      break;
+    case 'speak':
+      text = 'Speaks "' + param('text', 'Hello!') + '". watch_speak() shows the bubble and plays the embedded speech clip.';
+      break;
+    case 'tone':
+      text = 'Plays a ' + param('hz', '440') + ' Hz tone for ' + param('secs', '0.5') + ' seconds through the watch speaker.';
+      break;
+    case 'stopsounds':
+      text = 'Stops all sounds playing on the watch.';
+      break;
+    case 'touching':
+      text = 'Reporter: checks whether the sprite touches an edge or another sprite.';
+      break;
+    default:
+      text = 'Runs the "' + label + '" block.';
+  }
+
+  return { title: label, text: text, action: action };
+}
+
+const WATCH_FUNCTION_HELP = {
+  watch_render: {
+    title: 'watch_render()',
+    color: '#94a3b8',
+    text: 'Redraws the watch. It finds the active sprite image, then sends position, heading, size, visibility, sprite id, background id, and pixel data to qos_app_draw_image().'
+  },
+  watch_clamp: {
+    title: 'watch_clamp(value, low, high)',
+    color: '#94a3b8',
+    text: 'Returns value limited to the low–high range.'
+  },
+  watch_sleep_ms: {
+    title: 'watch_sleep_ms(ms)',
+    color: '#94a3b8',
+    text: 'Waits in chunks of at most 16 ms while qos_app_running() is true, so Stop stays responsive.'
+  },
+  watch_play_speech: {
+    title: 'watch_play_speech(text)',
+    color: '#94a3b8',
+    text: 'Placeholder in the preview. The local build service replaces it with a function that plays an embedded PCM speech clip.'
+  },
+  watch_random: {
+    title: 'watch_random(low, high)',
+    action: 'random',
+    text: 'Returns a random float between low and high. It swaps the limits if high is lower than low.'
+  },
+  watch_goto_start: {
+    title: 'watch_goto_start()',
+    action: 'goto',
+    text: 'Resets position to the center, heading to 0°, size to 100%, and visibility to on; then redraws and waits 360 ms.'
+  },
+  watch_move: {
+    title: 'watch_move(steps)',
+    action: 'move',
+    text: 'Animates the sprite forward. It converts steps to pixels along the heading, eases the motion over 24 frames, clamps it to the screen, and redraws each frame.'
+  },
+  watch_turn: {
+    title: 'watch_turn(degrees)',
+    action: 'turn',
+    text: 'Eases the heading by the requested degrees over 20 frames and wraps it to 0–360°.'
+  },
+  watch_point: {
+    title: 'watch_point(degrees)',
+    action: 'point',
+    text: 'Sets the heading instantly, wraps it to 0–360°, and redraws.'
+  },
+  watch_wait: {
+    title: 'watch_wait(seconds)',
+    action: 'wait',
+    text: 'Converts seconds to milliseconds and pauses through watch_sleep_ms(), which keeps checking whether the app is still running.'
+  },
+  watch_say: {
+    title: 'watch_say(text, seconds)',
+    action: 'say',
+    text: 'Draws the speech bubble, plays the embedded speech clip, then waits any remaining requested time.'
+  },
+  watch_speak: {
+    title: 'watch_speak(text)',
+    action: 'speak',
+    text: 'Draws the bubble and plays the embedded speech clip.'
+  },
+  watch_tone: {
+    title: 'watch_tone(hz, seconds)',
+    action: 'tone',
+    text: 'Calls qos_app_tone() to play a frequency for a duration through the watch speaker.'
+  },
+  watch_stop_sounds: {
+    title: 'watch_stop_sounds()',
+    action: 'stopsounds',
+    text: 'Logs a stop-sounds message. Audio playback itself is owned by the watch firmware.'
+  },
+  watch_switch_sprite: {
+    title: 'watch_switch_sprite(name)',
+    action: 'switchsprite',
+    text: 'Changes the active sprite id, then redraws the watch with the new image.'
+  },
+  watch_switch_background: {
+    title: 'watch_switch_background(name)',
+    action: 'switchbg',
+    text: 'Finds the compressed background, allocates a pixel buffer, decodes LZ4, sends the image to the watch, frees the buffer, and redraws.'
+  },
+  watch_show_sprite: {
+    title: 'watch_show_sprite()',
+    action: 'show',
+    text: 'Sets the sprite visible and redraws the watch.'
+  },
+  watch_hide_sprite: {
+    title: 'watch_hide_sprite()',
+    action: 'hide',
+    text: 'Hides the sprite and redraws the watch.'
+  },
+  watch_set_size: {
+    title: 'watch_set_size(percent)',
+    action: 'setsize',
+    text: 'Clamps the size to 10–400%, stores it, and redraws the sprite at the new scale.'
+  },
+  watch_goto_xy: {
+    title: 'watch_goto_xy(x, y)',
+    action: 'gotoxy',
+    text: 'Converts block coordinates (0,0 is the center) to screen pixels, clamps them to the watch bounds, and redraws.'
+  },
+  watch_glide: {
+    title: 'watch_glide(x, y, seconds)',
+    action: 'glide',
+    text: 'Eases from the current position to the target over the requested seconds at about 30 frames per second.'
+  },
+  watch_change_x: {
+    title: 'watch_change_x(dx)',
+    action: 'changex',
+    text: 'Offsets the sprite horizontally by dx pixels and clamps it to the watch bounds.'
+  },
+  watch_change_y: {
+    title: 'watch_change_y(dy)',
+    action: 'changey',
+    text: 'Offsets the sprite vertically by dy pixels (up is positive) and clamps it to the watch bounds.'
+  },
+  watch_touching: {
+    title: 'watch_touching(target)',
+    action: 'touching',
+    text: 'Computes the sprite radius, then checks whether it touches the screen edge or another sprite.'
+  },
+  watch_broadcast: {
+    title: 'watch_broadcast(message)',
+    action: 'broadcast',
+    text: 'Compares the message with every signal stack and calls the stack functions whose message matches.'
+  },
+  watch_find_sprite: {
+    title: 'watch_find_sprite(id)',
+    color: '#94a3b8',
+    text: 'Searches the embedded sprite table by id and returns its pixel data and dimensions.'
+  },
+  watch_find_background: {
+    title: 'watch_find_background(id)',
+    color: '#94a3b8',
+    text: 'Searches the embedded background table by id and returns its compressed image data.'
+  },
+  watch_lz4_decode: {
+    title: 'watch_lz4_decode(src, srcSize, dst, dstSize)',
+    color: '#94a3b8',
+    text: 'Decompresses an LZ4 block into the destination buffer, checking every length and offset for safety.'
+  },
+  main: {
+    title: 'main()',
+    action: 'start',
+    text: 'Entry point. It sets the starting sprite and background, waits 140 ms, then calls every on-start stack.'
+  }
+};
+
+const codeActionCategoryCache = Object.create(null);
+
+function categoryForAction(action) {
+  if (!action) return null;
+  if (!(action in codeActionCategoryCache)) {
+    let category = null;
+    Object.keys(DEFS).some((type) => {
+      const def = DEFS[type];
+      if ((def.action || def.type) === action) {
+        category = def.category;
+        return true;
+      }
+      return false;
+    });
+    codeActionCategoryCache[action] = category;
+  }
+  return codeActionCategoryCache[action];
+}
+
+function watchFunctionNameFromLine(line) {
+  const match = String(line || '').match(
+    /^\s*(?:static\s+)?(?:void|int|float|double|bool|const\s+char\s*\*|const\s+WatchSpriteAsset\s*\*|const\s+WatchBackgroundAsset\s*\*)\s+([A-Za-z_]\w*)\s*\(/
+  );
+  return match ? match[1] : null;
+}
+
+function functionHelpFor(name, userFunctions) {
+  const helper = WATCH_FUNCTION_HELP[name];
+  if (helper) return helper;
+  if (name && name.indexOf('fn_') === 0 && userFunctions) {
+    const definition = userFunctions.get(name);
+    if (definition) {
+      const help = explainCodeBlock(definition.script[0]);
+      return {
+        title: help.title,
+        text: help.text,
+        color: categoryColor((DEFS[definition.script[0].type] || {}).category),
+        linkedBlocks: [definition.script[0]]
+      };
+    }
+  }
+  return null;
+}
+
+function blocksForAction(action) {
+  const blocks = [];
+  if (!action) return blocks;
+  walkBlocks((block) => {
+    const def = DEFS[block.type] || {};
+    if ((def.action || block.type) === action) blocks.push(block);
+  });
+  return blocks;
+}
+
+function highlightCodeBlocks(blocks) {
+  if (!scriptsEl) return;
+  scriptsEl.querySelectorAll('.block.is-code-highlight').forEach((block) => {
+    block.classList.remove('is-code-highlight');
+  });
+  const ids = new Set();
+  (blocks || []).forEach((item) => {
+    if (!item) return;
+    ids.add(typeof item === 'string' ? item : item.id);
+  });
+  if (!ids.size) return;
+  scriptsEl.querySelectorAll('.block[data-id]').forEach((block) => {
+    if (ids.has(block.dataset.id)) block.classList.add('is-code-highlight');
+  });
+}
+
+function highlightCodeBlock(blockId) {
+  highlightCodeBlocks(blockId ? [blockId] : []);
+}
+
+let codeTipEl = null;
+let codeTipVisible = false;
+
+function codeLineFromEvent(event) {
+  const target = event.target;
+  return target && target.closest
+    ? target.closest('.code-line[data-help-title]')
+    : null;
+}
+
+function placeCodeTip(x, y) {
+  if (!codeTipEl) return;
+  const margin = 12;
+  const gap = 14;
+  const rect = codeTipEl.getBoundingClientRect();
+  let left = x + gap;
+  let top = y + gap;
+  if (left + rect.width > window.innerWidth - margin) {
+    left = x - rect.width - gap;
+  }
+  if (top + rect.height > window.innerHeight - margin) {
+    top = y - rect.height - gap;
+  }
+  left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin));
+  codeTipEl.style.left = left + 'px';
+  codeTipEl.style.top = top + 'px';
+}
+
+function showCodeTip(line, x, y) {
+  if (!codeTipEl) return;
+  const color = line.dataset.helpColor || '#38bdf8';
+  codeTipEl.style.setProperty('--code-tip-color', color);
+  codeTipEl.textContent = '';
+
+  const head = document.createElement('div');
+  head.className = 'code-tip-head';
+  const dot = document.createElement('span');
+  dot.className = 'code-tip-dot';
+  const title = document.createElement('span');
+  title.className = 'code-tip-title';
+  title.textContent = line.dataset.helpTitle || '';
+  head.append(dot, title);
+
+  const body = document.createElement('div');
+  body.className = 'code-tip-body';
+  body.textContent = line.dataset.helpText || '';
+
+  codeTipEl.append(head, body);
+
+  if (line.dataset.helpCode) {
+    const code = document.createElement('code');
+    code.className = 'code-tip-code';
+    code.textContent = line.dataset.helpCode;
+    codeTipEl.appendChild(code);
+  }
+
+  codeTipEl.classList.add('is-visible');
+  codeTipEl.setAttribute('aria-hidden', 'false');
+  codeTipVisible = true;
+  placeCodeTip(x, y);
+}
+
+function hideCodeTip() {
+  if (!codeTipEl) return;
+  codeTipEl.classList.remove('is-visible');
+  codeTipEl.setAttribute('aria-hidden', 'true');
+  codeTipVisible = false;
+}
+
+function initCodeTooltip() {
+  if (codeTipEl || !watchCodeEl) return;
+  codeTipEl = document.getElementById('codeTip');
+  if (!codeTipEl) return;
+
+  watchCodeEl.addEventListener('pointerover', (event) => {
+    const line = codeLineFromEvent(event);
+    if (!line || !watchCodeEl.contains(line)) return;
+    if (event.relatedTarget && line.contains(event.relatedTarget)) return;
+    showCodeTip(line, event.clientX, event.clientY);
+  });
+
+  watchCodeEl.addEventListener('pointermove', (event) => {
+    if (!codeTipVisible) return;
+    placeCodeTip(event.clientX, event.clientY);
+  });
+
+  watchCodeEl.addEventListener('pointerout', (event) => {
+    const line = codeLineFromEvent(event);
+    if (!line) return;
+    const next = event.relatedTarget && event.relatedTarget.closest
+      ? event.relatedTarget.closest('.code-line[data-help-title]')
+      : null;
+    if (next === line) return;
+    hideCodeTip();
+  });
+
+  watchCodeEl.addEventListener('pointerleave', hideCodeTip);
+  window.addEventListener('scroll', hideCodeTip, true);
+  window.addEventListener('resize', hideCodeTip);
+  window.addEventListener('blur', hideCodeTip);
+}
+
 function renderWatchCpp(focusBlockId) {
   if (!watchCodeEl) return;
+
+  initCodeTooltip();
+  hideCodeTip();
+  highlightCodeBlocks([]);
 
   const code = generateWatchCppPreview();
   watchCodeEl.textContent = '';
@@ -545,6 +1560,11 @@ function renderWatchCpp(focusBlockId) {
   pre.classList.add('code-block');
 
   const lines = code.split('\n');
+  const userFunctions = new Map();
+  uniqueFunctionDefinitions().forEach((definition) => {
+    userFunctions.set(functionCppName(definition.name), definition);
+  });
+
   const colors = {
     event: '#f0b32e',
     motion: '#3f7bf0',
@@ -552,12 +1572,61 @@ function renderWatchCpp(focusBlockId) {
     control: '#f97316',
     others: '#94a3b8'
   };
+  let currentFunction = null;
 
-  lines.forEach((line) => {
+  lines.forEach((line, index) => {
     const span = document.createElement('span');
     span.className = 'code-line';
     span.textContent = line;
-    if (!line.trim() || line.trim().startsWith('//')) {
+
+    const functionName = watchFunctionNameFromLine(line);
+    if (functionName) currentFunction = functionName;
+    else if (!line.trim()) currentFunction = null;
+
+    const blockId = watchCodeLineBlocks[index];
+    const block = blockId ? findBlockById(blockId) : null;
+    const isComment = line.trim().startsWith('//');
+    let help = null;
+    let linkedBlocks = [];
+    let color = null;
+    let isFunctionLine = false;
+
+    if (block) {
+      const def = DEFS[block.type] || {};
+      help = explainCodeBlock(block);
+      linkedBlocks = [block];
+      color = categoryColor(def.category);
+      span.classList.add('is-block-code');
+    } else if (currentFunction && !isComment) {
+      const functionHelp = functionHelpFor(currentFunction, userFunctions);
+      if (functionHelp) {
+        help = functionHelp;
+        isFunctionLine = true;
+        color = functionHelp.color ||
+          categoryColor(categoryForAction(functionHelp.action));
+        linkedBlocks = functionHelp.linkedBlocks ||
+          (functionHelp.action ? blocksForAction(functionHelp.action) : []);
+        span.classList.add('is-function-code');
+      }
+    }
+
+    if (help) {
+      span.dataset.helpTitle = help.title;
+      span.dataset.helpText = help.text;
+      span.dataset.helpColor = color || '#38bdf8';
+      span.style.setProperty('--code-block-color', color || '#38bdf8');
+      if (isFunctionLine && functionName) span.dataset.helpCode = line.trim();
+      if (linkedBlocks.length) {
+        span.dataset.blockId = linkedBlocks[0].id;
+        span.dataset.blockIds = linkedBlocks.map((item) => item.id).join(' ');
+        span.addEventListener('mouseenter', () => highlightCodeBlocks(linkedBlocks));
+        span.addEventListener('mouseleave', () => highlightCodeBlocks([]));
+      }
+    }
+
+    if (help && color) {
+      span.style.color = 'color-mix(in srgb, ' + color + ' 68%, #ffffff)';
+    } else if (!line.trim() || isComment) {
       span.style.color = colors.others;
     } else if (line.includes('stack')) {
       span.style.color = '#cbd5e1';
@@ -614,7 +1683,14 @@ function fallbackCopyText(text) {
 }
 
 async function copyWatchCpp() {
-  const text = generateWatchCpp();
+  let text;
+  try {
+    const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
+    text = generateWatchCpp(assets[0], assets[1]);
+  } catch (error) {
+    showBuildError(error);
+    return;
+  }
   let copied = false;
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -627,11 +1703,18 @@ async function copyWatchCpp() {
   }
 
   if (!copied) copied = fallbackCopyText(text);
-  showToast(copied ? 'Watch C++ copied.' : 'Could not copy the Watch C++.');
+  showToast(copied ? 'Watch C++ and sprite data copied.' : 'Could not copy the Watch C++.');
 }
 
-function downloadWatchCpp() {
-  const blob = new Blob([generateWatchCpp()], { type: 'text/plain;charset=utf-8' });
+async function downloadWatchCpp() {
+  let blob;
+  try {
+    const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
+    blob = new Blob([generateWatchCpp(assets[0], assets[1])], { type: 'text/plain;charset=utf-8' });
+  } catch (error) {
+    showBuildError(error);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
 
@@ -642,6 +1725,223 @@ function downloadWatchCpp() {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
   showToast('Downloaded blockcode-app.cpp.');
+}
+
+function appIdFromName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 23) || 'blockcode-app';
+}
+
+let connectedWatchPort = null;
+
+async function ensureWatchConnection() {
+  if (connectedWatchPort) return connectedWatchPort;
+  if (!navigator.serial) {
+    throw new Error('USB serial selection requires Chrome or Edge over localhost or HTTPS.');
+  }
+  connectedWatchPort = await navigator.serial.requestPort({
+    filters: [{ usbVendorId: 0x303A, usbProductId: 0x1001 }]
+  });
+  return connectedWatchPort;
+}
+
+function watchAppCrc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let index = 0; index < bytes.length; index++) {
+    crc ^= bytes[index];
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function readWatchResponse(reader, needle, timeoutMs) {
+  const decoder = new TextDecoder();
+  let response = '';
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let timer;
+    const result = await Promise.race([
+      reader.read(),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(1, deadline - Date.now()));
+      })
+    ]);
+    clearTimeout(timer);
+    if (!result) {
+      await reader.cancel();
+      throw new Error('Timed out waiting for the watch. Check its USB connection and firmware.');
+    }
+    if (result.done) throw new Error('The watch disconnected during upload.');
+    response += decoder.decode(result.value, { stream: true });
+    if (response.includes(needle)) return response;
+    if (response.includes('QOS_ERR')) throw new Error(response.trim());
+  }
+  throw new Error('Timed out waiting for ' + needle + ' from the watch.');
+}
+
+async function uploadWatchPackage(port, appBlob, appId) {
+  const bytes = new Uint8Array(await appBlob.arrayBuffer());
+  if (!bytes.length || bytes.length > 4 * 1024 * 1024) {
+    throw new Error('The built app is empty or larger than the watch upload limit (4 MiB).');
+  }
+  const name = appId + '.app';
+  const crc = watchAppCrc32(bytes).toString(16).padStart(8, '0');
+  let reader = null;
+  let writer = null;
+  let opened = false;
+  try {
+    await port.open({ baudRate: 115200 });
+    opened = true;
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+    reader = port.readable.getReader();
+    writer = port.writable.getWriter();
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    const command = new TextEncoder().encode(
+      'QOSUPLOAD ' + bytes.length + ' ' + crc + ' ' + name + '\n'
+    );
+    await writer.write(command);
+    await readWatchResponse(reader, 'QOS_READY', 30000);
+
+    const chunkSize = 1024;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      await writer.write(bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+      if (offset + chunkSize < bytes.length) {
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+    }
+    const result = await readWatchResponse(reader, 'QOS_OK', 30000);
+    if (result.includes('QOS_ERR')) throw new Error(result.trim());
+  } finally {
+    if (reader) reader.releaseLock();
+    if (writer) writer.releaseLock();
+    if (opened) await port.close();
+  }
+}
+
+async function requestWatchApp(name, id, spriteAssets, backgroundAssets) {
+  const serviceOrigin = 'http://127.0.0.1:8765';
+  const isBuildServicePage = location.protocol === 'http:' &&
+    (location.hostname === '127.0.0.1' || location.hostname === 'localhost') &&
+    location.port === '8765';
+  const buildUrl = isBuildServicePage ? '/build' : serviceOrigin + '/build';
+  const body = JSON.stringify({
+    source: generateWatchCpp(spriteAssets, backgroundAssets),
+    id: id,
+    name: name
+  });
+  const headers = { 'Content-Type': 'application/json' };
+  let requestBody = body;
+  if (typeof CompressionStream === 'function') {
+    requestBody = await new Response(
+      new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'))
+    ).blob();
+    headers['Content-Encoding'] = 'gzip';
+  }
+  let response;
+  try {
+    response = await fetch(buildUrl, {
+      method: 'POST',
+      headers: headers,
+      body: requestBody
+    });
+  } catch (error) {
+    throw new Error('Could not connect to the build service at ' +
+      new URL(buildUrl, location.href).href + ' from page origin ' + location.origin +
+      ': ' + (error.message || String(error)) +
+      ' Open this app at http://127.0.0.1:8765/ and reload if the request remains blocked.');
+  }
+
+  if (!response.ok) {
+    let message = 'Build failed.';
+    try {
+      const detail = await response.json();
+      if (detail.error) message = detail.error;
+    } catch (error) { /* keep generic message */ }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
+function showBuildError(error) {
+  const unavailable = /failed to fetch|networkerror|could not connect to the build service/i.test(error.message || '');
+  showBuildNotice('Build failed', unavailable
+    ? (error.message || 'Build service is unreachable. Open http://127.0.0.1:8765/.')
+    : (error.message || 'Could not reach the local watch build service.'), 'error', false);
+}
+
+async function buildWatchApp() {
+  if (state.running) {
+    showToast('Stop the program before building it.');
+    return;
+  }
+
+  const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
+  if (!name) return;
+  const id = appIdFromName(name);
+  const originalText = buildAppBtn.textContent;
+  buildAppBtn.disabled = true;
+  buildAppBtn.textContent = 'Building…';
+  showBuildNotice('Building watch app', 'Preparing sprite assets…', 'loading', true);
+
+  try {
+    const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
+    showBuildNotice('Building watch app', 'Compiling ' + id + '.app…', 'loading', true);
+    const blob = await requestWatchApp(name, id, assets[0], assets[1]);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = id + '.app';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showBuildNotice('Build complete', 'Built ' + id + '.app with its sprites. Upload it to run it on the watch.', 'success', false);
+  } catch (error) {
+    showBuildError(error);
+  } finally {
+    buildAppBtn.disabled = false;
+    buildAppBtn.textContent = originalText;
+  }
+}
+
+async function uploadWatchApp() {
+  if (state.running) {
+    showToast('Stop the program before building it.');
+    return;
+  }
+  let port;
+  try {
+    port = await ensureWatchConnection();
+  } catch (error) {
+    if (error && error.name === 'NotFoundError') return;
+    showBuildError(error);
+    return;
+  }
+  if (!port) return;
+  const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
+  if (!name) return;
+  const id = appIdFromName(name);
+  const originalText = uploadBtn.textContent;
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = 'Building & uploading…';
+  showBuildNotice('Building and uploading', 'Preparing sprite assets…', 'loading', true);
+
+  try {
+    const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
+    showBuildNotice('Building and uploading', 'Building ' + id + '.app…', 'loading', true);
+    const appBlob = await requestWatchApp(name, id, assets[0], assets[1]);
+    showBuildNotice('Building and uploading', 'Sending ' + id + '.app to the watch…', 'loading', true);
+    await uploadWatchPackage(port, appBlob, id);
+    showBuildNotice('Upload complete', 'Uploaded ' + id + '.app and its sprites to the watch.', 'success', false);
+  } catch (error) {
+    connectedWatchPort = null;
+    showBuildError(error);
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = originalText;
+  }
 }
 
 function setRunning(running) {
@@ -666,33 +1966,51 @@ function isHat(block) {
 async function runProgram() {
   if (state.running) return;
 
-  if (!workspace.length) {
-    showToast('Drag some blocks into the workspace first.');
-    return;
-  }
+  const selectedSpriteId = activeWorkspaceSpriteId || state.spriteId;
+  const spriteIds = allSprites().map((sprite) => sprite.id);
+  if (selectedSpriteId && !spriteIds.includes(selectedSpriteId)) spriteIds.push(selectedSpriteId);
+  const scriptsBySprite = spriteIds.map((spriteId) => ({
+    spriteId: spriteId,
+    scripts: (spriteId === activeWorkspaceSpriteId ? workspace : workspaceBySprite[spriteId] || [])
+      .filter((script) => script.length > 0 && isStartupHat(script[0]))
+  })).filter((item) => item.scripts.length > 0);
 
-  const scripts = workspace.filter((script) => {
-    return script.length > 0 && isHat(script[0]) && !isDefine(script[0]);
-  });
-
-  if (!scripts.length) {
-    showToast('Add an "on start" block at the top of a stack to run it.');
+  if (!scriptsBySprite.length) {
+    const hasBlocks = spriteIds.some((spriteId) =>
+      (spriteId === activeWorkspaceSpriteId ? workspace : workspaceBySprite[spriteId] || []).length > 0
+    );
+    showToast(hasBlocks
+      ? 'Add an "on start" block at the top of a stack to run it.'
+      : 'Drag some blocks into the workspace first.');
     return;
   }
 
   state.token += 1;
   const token = state.token;
-  const ctx = { vars: Object.create(null), depth: 0 };
+  const vars = createRuntimeVariables();
+  renderMonitorPanel(vars);
+  const runContext = {
+    vars: vars,
+    depth: 0,
+    spriteId: selectedSpriteId
+  };
+  activeRuntimeContext = runContext;
 
   setRunning(true);
   hideBubble();
 
   try {
-    for (const script of scripts) {
-      if (token !== state.token) return;
-      await executeStack(script, token, ctx);
-    }
+    await Promise.all(scriptsBySprite.map(async (item) => {
+      const ctx = { vars: vars, depth: 0, spriteId: item.spriteId };
+      activateRuntimeSprite(item.spriteId);
+      for (const script of item.scripts) {
+        if (token !== state.token) return;
+        await executeStack(script, token, ctx);
+      }
+    }));
   } finally {
+    if (selectedSpriteId) activateRuntimeSprite(selectedSpriteId);
+    if (activeRuntimeContext === runContext) activeRuntimeContext = null;
     if (token === state.token) {
       setRunning(false);
       clearActive();

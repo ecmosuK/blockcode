@@ -3,12 +3,10 @@
 /*
  * BlockCode watch API
  * -------------------
- * These are the action functions called by BlockCode blocks. Exported apps
- * include stand-in implementations that track position and print to serial;
- * replace those bodies with the watch display and hardware calls.
+ * These are the action functions called by BlockCode blocks. Generated apps
+ * link these actions to the qos_app_* display hooks exported by Quantum OS.
  *
- * Include this header in the firmware implementation to keep the signatures
- * in sync.
+ * Keep the declarations in sync with app-codegen.js and Quantum OS app_view.h.
  */
 
 #define WATCH_API_VERSION 1

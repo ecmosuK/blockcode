@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="44" viewBox="0 0 300 44" fill="none">
+  <path d="M4 0H16V1Q16 6 19 6H33Q36 6 36 1V0H296Q300 0 300 4V34Q300 38 296 38H4Q0 38 0 34V4Q0 0 4 0Z" fill="#0ea5e9"/>
+  <path d="M16 34H36V39Q36 44 33 44H19Q16 44 16 39V34Z" fill="#0ea5e9"/>
+  <rect x="70" y="8" width="76" height="22" rx="4" fill="#fff" fill-opacity=".94"/>
+  <rect x="202" y="8" width="80" height="22" rx="4" fill="#fff" fill-opacity=".94"/>
+  <text x="28" y="24" fill="#082f49" font-family="system-ui,sans-serif" font-size="14.5" font-weight="600">add</text>
+  <text x="174" y="24" fill="#082f49" font-family="system-ui,sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">to list</text>
+</svg>

@@ -127,9 +127,6 @@ function syncStageGeometry() {
   const h = stageEl.clientHeight;
   if (w <= 0 || h <= 0) return;
 
-  stageCache = { w: w, h: h };
-  state.x = clamp(state.x, PAD, w - PAD);
-  state.y = clamp(state.y, PAD, h - PAD);
   updateSprite();
 }
 

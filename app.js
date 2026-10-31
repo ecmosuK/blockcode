@@ -1,6 +1,8 @@
 // Application startup. All feature scripts are loaded before this file.
 /* ---------- Boot ---------- */
 
+let workspace = [];
+
 const initialScript = [
   makeBlock('start'),
   makeBlock('goto'),
@@ -10,12 +12,13 @@ const initialScript = [
   makeBlock('wait', { secs: 0.4 })
 ].filter(Boolean);
 
-let workspace = initialScript.length ? [makeScript(initialScript, 24, 24)] : [];
+workspace = initialScript.length ? [makeScript(initialScript, 24, 24)] : [];
 
 loadLayoutState();
 applyLayoutState();
 
 initSprites();
+initializeSpriteWorkspaces();
 renderPalette();
 renderWorkspace();
 setRunning(false);

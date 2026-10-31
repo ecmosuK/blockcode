@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <defs>
+    <linearGradient id="suit" x1="20" y1="14" x2="53" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#a8bad8"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="26" y1="17" x2="46" y2="37" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <path d="M25 42 17 48v12h14V43M47 42l8 6v12H41V43" fill="#dbeafe" stroke="#64748b" stroke-width="2"/>
+  <path d="M27 37h18l8 11-5 17H24l-5-17z" fill="url(#suit)" stroke="#64748b" stroke-width="2"/>
+  <rect x="22" y="10" width="28" height="31" rx="13" fill="url(#suit)" stroke="#64748b" stroke-width="2"/>
+  <path d="M26 23a10 10 0 0 1 20 0v5H26z" fill="url(#visor)" stroke="#0f172a" stroke-width="2"/>
+  <path d="M30 22q4-5 10-2" fill="none" stroke="#dbeafe" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="36" cy="51" r="5" fill="#f97316" stroke="#9a3412" stroke-width="1.5"/>
+  <path d="M36 47v8m-4-4h8" stroke="#fff7ed" stroke-width="1.5"/>
+</svg>

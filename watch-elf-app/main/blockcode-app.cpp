@@ -1,5 +1,5 @@
-// Replace this file with the .cpp downloaded from BlockCode.
-// Build the project to produce build/blockcode_app.app.elf.
+// Replaced by tools/build-service.py for each web-app build request.
+// The resulting ESP-IDF ELF is wrapped in Quantum OS's .app file format.
 
 extern "C" int main(int argc, char **argv) {
   (void)argc;

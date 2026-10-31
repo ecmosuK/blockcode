@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+  <defs>
+    <linearGradient id="roverBody" x1="19" y1="29" x2="54" y2="53" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fdba74"/>
+      <stop offset="1" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+  <path d="M17 35h39l6 17H12z" fill="url(#roverBody)" stroke="#7c2d12" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M25 35V19h20v16M35 19V9m0 0 10 5" fill="none" stroke="#cbd5e1" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="28" y="23" width="14" height="9" rx="2" fill="#38bdf8" stroke="#e0f2fe" stroke-width="1.5"/>
+  <circle cx="21" cy="55" r="7" fill="#1e293b" stroke="#cbd5e1" stroke-width="2"/>
+  <circle cx="51" cy="55" r="7" fill="#1e293b" stroke="#cbd5e1" stroke-width="2"/>
+  <path d="M18 45h39" stroke="#fed7aa" stroke-width="2"/>
+</svg>
