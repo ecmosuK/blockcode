@@ -37,6 +37,12 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_ELF_BYTES = 1024 * 1024
 BUILD_LOCK = threading.Lock()
 UPLOAD_LOCK = threading.Lock()
+DEFAULT_WEB_ORIGIN = "https://quarkband.dudekjell.workers.dev"
+ALLOWED_WEB_ORIGINS = {
+    origin.strip()
+    for origin in os.environ.get("BLOCKCODE_ALLOWED_ORIGINS", DEFAULT_WEB_ORIGIN).split(",")
+    if origin.strip()
+}
 VOICE_CALL_RE = re.compile(r'\bwatch_(?:say|speak)\(\s*("(?:\\.|[^"\\])*")')
 VOICE_STUB_RE = re.compile(
     r'static float watch_play_speech\(const char \*text\)\s*\{\s*'
@@ -275,7 +281,7 @@ class Handler(BaseHTTPRequestHandler):
             parsed_origin.scheme in ("http", "https")
             and parsed_origin.hostname in ("localhost", "127.0.0.1")
         )
-        if origin == "null" or local_web_origin:
+        if origin == "null" or local_web_origin or origin in ALLOWED_WEB_ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")

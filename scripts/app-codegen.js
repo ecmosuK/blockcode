@@ -1097,7 +1097,7 @@ function explainCodeBlock(block) {
   const action = def.action || block.type;
   const param = (key, fallback) => {
     const value = block.params ? block.params[key] : undefined;
-    if (value && typeof value === 'object') return 'a calculated value';
+    if (value && typeof value === 'object') return 'a number the program works out';
     if (value === undefined || value === null || value === '') {
       return fallback === undefined ? '?' : fallback;
     }
@@ -1107,112 +1107,112 @@ function explainCodeBlock(block) {
   let text;
   switch (action) {
     case 'start':
-      text = 'Runs this stack once when the app starts. main() calls it after the first sprite and background are set.';
+      text = 'These steps start when the app turns on.';
       break;
     case 'event':
-      text = 'Runs this stack when its sprite is clicked in the watch preview.';
+      text = 'These steps start when you click the sprite.';
       break;
     case 'signal':
-      text = 'Runs when another stack sends the signal "' + param('message', '') + '".';
+      text = 'These steps start when another part sends "' + param('message', '') + '".';
       break;
     case 'broadcast':
-      text = 'Sends the signal "' + param('message', '') + '" to every stack listening for it.';
+      text = 'Tells every part listening for "' + param('message', '') + '" to start.';
       break;
     case 'define':
-      text = 'Defines the reusable function "' + param('name', 'unnamed') + '". A call block runs its blocks and returns here.';
+      text = 'Gives these steps the name "' + param('name', 'unnamed') + '" so you can use them again.';
       break;
     case 'call':
-      text = 'Calls the function "' + param('name', 'unnamed') + '" and runs its blocks before continuing.';
+      text = 'Runs the saved steps called "' + param('name', 'unnamed') + '".';
       break;
     case 'if':
-      text = 'Runs the blocks inside only while the condition is true.';
+      text = 'Runs the steps inside only if the check is true.';
       break;
     case 'else':
-      text = 'Runs when the matching if condition is false.';
+      text = 'Runs these steps if the check above is not true.';
       break;
     case 'repeat':
-      text = 'Repeats the blocks inside ' + param('times', '0') + ' times.';
+      text = 'Does the steps inside ' + param('times', '0') + ' times.';
       break;
     case 'forever':
-      text = 'Repeats the blocks inside until Stop is pressed, pausing briefly each frame.';
+      text = 'Keeps doing the steps inside until you press Stop.';
       break;
     case 'move':
-      text = 'Moves the sprite ' + param('steps', '0') + ' steps along its heading. watch_move() eases the motion over 24 frames and clamps it to the watch screen.';
+      text = 'Moves the sprite forward ' + param('steps', '0') + ' steps.';
       break;
     case 'turn':
-      text = 'Turns the sprite ' + param('deg', '0') + '°. watch_turn() eases the rotation over 20 frames and wraps the heading to 0–360°.';
+      text = 'Turns the sprite ' + param('deg', '0') + ' degrees.';
       break;
     case 'goto':
-      text = 'Resets the sprite to the center with heading 0°, size 100%, and visible. watch_goto_start() redraws and waits 360 ms.';
+      text = 'Puts the sprite in the middle, facing forward.';
       break;
     case 'wait':
-      text = 'Pauses for ' + param('secs', '0') + ' seconds. watch_wait() sleeps in short chunks while qos_app_running() is true, so Stop stays responsive.';
+      text = 'Waits for ' + param('secs', '0') + ' seconds before going on.';
       break;
     case 'stop':
-      text = 'Stops this stack immediately by returning from its generated function.';
+      text = 'Stops these steps right away.';
       break;
     case 'setvar':
-      text = 'Sets variable "' + param('name', 'variable') + '" to ' + param('value', '0') + '.';
+      text = 'Puts ' + param('value', '0') + ' into the box named "' + param('name', 'variable') + '".';
       break;
     case 'changevar':
-      text = 'Adds ' + param('value', '0') + ' to variable "' + param('name', 'variable') + '".';
+      text = 'Adds ' + param('value', '0') + ' to the number in "' + param('name', 'variable') + '".';
       break;
     case 'listadd':
-      text = 'Adds "' + param('item', '') + '" to the end of list "' + param('list', 'list') + '".';
+      text = 'Adds "' + param('item', '') + '" to the end of "' + param('list', 'list') + '".';
       break;
     case 'listdelete':
-      text = 'Deletes item ' + param('index', '1') + ' from list "' + param('list', 'list') + '".';
+      text = 'Takes item ' + param('index', '1') + ' out of "' + param('list', 'list') + '".';
       break;
     case 'listinsert':
-      text = 'Inserts "' + param('item', '') + '" at position ' + param('index', '1') + ' in list "' + param('list', 'list') + '".';
+      text = 'Puts "' + param('item', '') + '" into spot ' + param('index', '1') + ' in "' + param('list', 'list') + '".';
       break;
     case 'listreplace':
-      text = 'Replaces item ' + param('index', '1') + ' in list "' + param('list', 'list') + '" with "' + param('item', '') + '".';
+      text = 'Changes item ' + param('index', '1') + ' in "' + param('list', 'list') + '" to "' + param('item', '') + '".';
       break;
     case 'switchsprite':
-      text = 'Switches the active sprite to "' + param('sprite', 'sprite') + '" and redraws the watch.';
+      text = 'Changes the picture to "' + param('sprite', 'sprite') + '".';
       break;
     case 'switchbg':
-      text = 'Switches to background "' + param('background', 'background') + '". watch_switch_background() decompresses the embedded LZ4 image, sends it to the watch, then frees the buffer.';
+      text = 'Changes the background to "' + param('background', 'background') + '".';
       break;
     case 'show':
-      text = 'Makes the sprite visible and redraws the watch.';
+      text = 'Shows the sprite.';
       break;
     case 'hide':
-      text = 'Hides the sprite and redraws the watch.';
+      text = 'Hides the sprite.';
       break;
     case 'setsize':
-      text = 'Sets the sprite size to ' + param('size', '100') + '% (clamped to 10–400%) and redraws.';
+      text = 'Makes the sprite ' + param('size', '100') + '% of its usual size.';
       break;
     case 'gotoxy':
-      text = 'Moves the sprite instantly to x ' + param('x', '0') + ', y ' + param('y', '0') + '. Watch coordinates put 0,0 at the center.';
+      text = 'Moves the sprite to spot ' + param('x', '0') + ', ' + param('y', '0') + '.';
       break;
     case 'glide':
-      text = 'Glides to x ' + param('x', '0') + ', y ' + param('y', '0') + ' over ' + param('secs', '1') + ' seconds at about 30 frames per second.';
+      text = 'Slides to spot ' + param('x', '0') + ', ' + param('y', '0') + ' in ' + param('secs', '1') + ' seconds.';
       break;
     case 'changex':
-      text = 'Changes x by ' + param('dx', '0') + ' pixels and clamps the sprite to the screen.';
+      text = 'Moves the sprite left or right by ' + param('dx', '0') + '.';
       break;
     case 'changey':
-      text = 'Changes y by ' + param('dy', '0') + ' pixels (up is positive) and clamps the sprite to the screen.';
+      text = 'Moves the sprite up or down by ' + param('dy', '0') + '.';
       break;
     case 'point':
-      text = 'Points the sprite at ' + param('deg', '0') + '° instantly.';
+      text = 'Turns the sprite to face ' + param('deg', '0') + ' degrees.';
       break;
     case 'say':
-      text = 'Shows "' + param('text', 'Hello from BlockCode') + '" for ' + param('secs', '1') + ' seconds. watch_say() draws the bubble, plays the embedded speech clip, then waits the remaining time.';
+      text = 'Shows and says "' + param('text', 'Hello!') + '" for ' + param('secs', '1') + ' seconds.';
       break;
     case 'speak':
-      text = 'Speaks "' + param('text', 'Hello!') + '". watch_speak() shows the bubble and plays the embedded speech clip.';
+      text = 'Says "' + param('text', 'Hello!') + ' out loud.';
       break;
     case 'tone':
-      text = 'Plays a ' + param('hz', '440') + ' Hz tone for ' + param('secs', '0.5') + ' seconds through the watch speaker.';
+      text = 'Plays a beep for ' + param('secs', '0.5') + ' seconds.';
       break;
     case 'stopsounds':
-      text = 'Stops all sounds playing on the watch.';
+      text = 'Stops the sounds.';
       break;
     case 'touching':
-      text = 'Reporter: checks whether the sprite touches an edge or another sprite.';
+      text = 'Checks if the sprite is touching an edge or another sprite.';
       break;
     default:
       text = 'Runs the "' + label + '" block.';
@@ -1225,147 +1225,147 @@ const WATCH_FUNCTION_HELP = {
   watch_render: {
     title: 'watch_render()',
     color: '#94a3b8',
-    text: 'Redraws the watch. It finds the active sprite image, then sends position, heading, size, visibility, sprite id, background id, and pixel data to qos_app_draw_image().'
+    text: 'Draws the sprite and background on the watch screen.'
   },
   watch_clamp: {
     title: 'watch_clamp(value, low, high)',
     color: '#94a3b8',
-    text: 'Returns value limited to the low–high range.'
+    text: 'Keeps a number between its smallest and biggest allowed values.'
   },
   watch_sleep_ms: {
     title: 'watch_sleep_ms(ms)',
     color: '#94a3b8',
-    text: 'Waits in chunks of at most 16 ms while qos_app_running() is true, so Stop stays responsive.'
+    text: 'Waits a little at a time, so the app can still stop when asked.'
   },
   watch_play_speech: {
     title: 'watch_play_speech(text)',
     color: '#94a3b8',
-    text: 'Placeholder in the preview. The local build service replaces it with a function that plays an embedded PCM speech clip.'
+    text: 'Plays the spoken words. The real sound is added when you build the watch app.'
   },
   watch_random: {
     title: 'watch_random(low, high)',
     action: 'random',
-    text: 'Returns a random float between low and high. It swaps the limits if high is lower than low.'
+    text: 'Picks a surprise number between the two numbers.'
   },
   watch_goto_start: {
     title: 'watch_goto_start()',
     action: 'goto',
-    text: 'Resets position to the center, heading to 0°, size to 100%, and visibility to on; then redraws and waits 360 ms.'
+    text: 'Puts the sprite in the middle, facing forward, at its normal size.'
   },
   watch_move: {
     title: 'watch_move(steps)',
     action: 'move',
-    text: 'Animates the sprite forward. It converts steps to pixels along the heading, eases the motion over 24 frames, clamps it to the screen, and redraws each frame.'
+    text: 'Moves the sprite forward and keeps it on the screen.'
   },
   watch_turn: {
     title: 'watch_turn(degrees)',
     action: 'turn',
-    text: 'Eases the heading by the requested degrees over 20 frames and wraps it to 0–360°.'
+    text: 'Turns the sprite smoothly.'
   },
   watch_point: {
     title: 'watch_point(degrees)',
     action: 'point',
-    text: 'Sets the heading instantly, wraps it to 0–360°, and redraws.'
+    text: 'Points the sprite in a new direction.'
   },
   watch_wait: {
     title: 'watch_wait(seconds)',
     action: 'wait',
-    text: 'Converts seconds to milliseconds and pauses through watch_sleep_ms(), which keeps checking whether the app is still running.'
+    text: 'Waits for the number of seconds you chose.'
   },
   watch_say: {
     title: 'watch_say(text, seconds)',
     action: 'say',
-    text: 'Draws the speech bubble, plays the embedded speech clip, then waits any remaining requested time.'
+    text: 'Shows the words, says them out loud, and waits.'
   },
   watch_speak: {
     title: 'watch_speak(text)',
     action: 'speak',
-    text: 'Draws the bubble and plays the embedded speech clip.'
+    text: 'Shows the words and says them out loud.'
   },
   watch_tone: {
     title: 'watch_tone(hz, seconds)',
     action: 'tone',
-    text: 'Calls qos_app_tone() to play a frequency for a duration through the watch speaker.'
+    text: 'Plays a beep through the watch speaker.'
   },
   watch_stop_sounds: {
     title: 'watch_stop_sounds()',
     action: 'stopsounds',
-    text: 'Logs a stop-sounds message. Audio playback itself is owned by the watch firmware.'
+    text: 'Tells the watch to stop its sounds.'
   },
   watch_switch_sprite: {
     title: 'watch_switch_sprite(name)',
     action: 'switchsprite',
-    text: 'Changes the active sprite id, then redraws the watch with the new image.'
+    text: 'Changes the picture and draws it on the watch.'
   },
   watch_switch_background: {
     title: 'watch_switch_background(name)',
     action: 'switchbg',
-    text: 'Finds the compressed background, allocates a pixel buffer, decodes LZ4, sends the image to the watch, frees the buffer, and redraws.'
+    text: 'Changes the background picture on the watch.'
   },
   watch_show_sprite: {
     title: 'watch_show_sprite()',
     action: 'show',
-    text: 'Sets the sprite visible and redraws the watch.'
+    text: 'Shows the sprite on the watch.'
   },
   watch_hide_sprite: {
     title: 'watch_hide_sprite()',
     action: 'hide',
-    text: 'Hides the sprite and redraws the watch.'
+    text: 'Makes the sprite disappear.'
   },
   watch_set_size: {
     title: 'watch_set_size(percent)',
     action: 'setsize',
-    text: 'Clamps the size to 10–400%, stores it, and redraws the sprite at the new scale.'
+    text: 'Changes how big the sprite looks.'
   },
   watch_goto_xy: {
     title: 'watch_goto_xy(x, y)',
     action: 'gotoxy',
-    text: 'Converts block coordinates (0,0 is the center) to screen pixels, clamps them to the watch bounds, and redraws.'
+    text: 'Moves the sprite to the spot you picked. The middle is 0, 0.'
   },
   watch_glide: {
     title: 'watch_glide(x, y, seconds)',
     action: 'glide',
-    text: 'Eases from the current position to the target over the requested seconds at about 30 frames per second.'
+    text: 'Slides the sprite to a new spot.'
   },
   watch_change_x: {
     title: 'watch_change_x(dx)',
     action: 'changex',
-    text: 'Offsets the sprite horizontally by dx pixels and clamps it to the watch bounds.'
+    text: 'Moves the sprite left or right.'
   },
   watch_change_y: {
     title: 'watch_change_y(dy)',
     action: 'changey',
-    text: 'Offsets the sprite vertically by dy pixels (up is positive) and clamps it to the watch bounds.'
+    text: 'Moves the sprite up or down.'
   },
   watch_touching: {
     title: 'watch_touching(target)',
     action: 'touching',
-    text: 'Computes the sprite radius, then checks whether it touches the screen edge or another sprite.'
+    text: 'Checks if the sprite touches the edge or another sprite.'
   },
   watch_broadcast: {
     title: 'watch_broadcast(message)',
     action: 'broadcast',
-    text: 'Compares the message with every signal stack and calls the stack functions whose message matches.'
+    text: 'Starts the parts that are listening for this message.'
   },
   watch_find_sprite: {
     title: 'watch_find_sprite(id)',
     color: '#94a3b8',
-    text: 'Searches the embedded sprite table by id and returns its pixel data and dimensions.'
+    text: 'Finds a sprite picture by its name.'
   },
   watch_find_background: {
     title: 'watch_find_background(id)',
     color: '#94a3b8',
-    text: 'Searches the embedded background table by id and returns its compressed image data.'
+    text: 'Finds a background picture by its name.'
   },
   watch_lz4_decode: {
     title: 'watch_lz4_decode(src, srcSize, dst, dstSize)',
     color: '#94a3b8',
-    text: 'Decompresses an LZ4 block into the destination buffer, checking every length and offset for safety.'
+    text: 'Unpacks a smaller picture so the watch can show it.'
   },
   main: {
     title: 'main()',
     action: 'start',
-    text: 'Entry point. It sets the starting sprite and background, waits 140 ms, then calls every on-start stack.'
+    text: 'This is where the app begins. It sets up the screen, then starts the on-start steps.'
   }
 };
 
@@ -1403,8 +1403,8 @@ function functionHelpFor(name, userFunctions) {
     if (definition) {
       const help = explainCodeBlock(definition.script[0]);
       return {
-        title: help.title,
-        text: help.text,
+        title: 'Function: ' + definition.name,
+        text: 'This is a set of steps named "' + definition.name + '". It runs when a call function block uses this name.',
         color: categoryColor((DEFS[definition.script[0].type] || {}).category),
         linkedBlocks: [definition.script[0]]
       };
@@ -1849,7 +1849,7 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets) {
     throw new Error('Could not connect to the build service at ' +
       new URL(buildUrl, location.href).href + ' from page origin ' + location.origin +
       ': ' + (error.message || String(error)) +
-      ' Open this app at http://127.0.0.1:8765/ and reload if the request remains blocked.');
+      ' Start the local build service at http://127.0.0.1:8765/ and allow this website to access your local network if your browser asks.');
   }
 
   if (!response.ok) {
