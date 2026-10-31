@@ -1449,8 +1449,19 @@ let codeTipVisible = false;
 function codeLineFromEvent(event) {
   const target = event.target;
   return target && target.closest
-    ? target.closest('.code-line[data-help-title]')
+    ? target.closest('.code-line')
     : null;
+}
+
+function highlightCodeFunction(group) {
+  if (!watchCodeEl) return;
+  watchCodeEl.querySelectorAll('.code-line.is-function-highlight').forEach((line) => {
+    line.classList.remove('is-function-highlight');
+  });
+  if (!group) return;
+  watchCodeEl.querySelectorAll('.code-line[data-code-function]').forEach((line) => {
+    if (line.dataset.codeFunction === group) line.classList.add('is-function-highlight');
+  });
 }
 
 function placeCodeTip(x, y) {
@@ -1522,7 +1533,9 @@ function initCodeTooltip() {
     const line = codeLineFromEvent(event);
     if (!line || !watchCodeEl.contains(line)) return;
     if (event.relatedTarget && line.contains(event.relatedTarget)) return;
-    showCodeTip(line, event.clientX, event.clientY);
+    highlightCodeFunction(line.dataset.codeFunction);
+    if (line.dataset.helpTitle) showCodeTip(line, event.clientX, event.clientY);
+    else hideCodeTip();
   });
 
   watchCodeEl.addEventListener('pointermove', (event) => {
@@ -1534,13 +1547,19 @@ function initCodeTooltip() {
     const line = codeLineFromEvent(event);
     if (!line) return;
     const next = event.relatedTarget && event.relatedTarget.closest
-      ? event.relatedTarget.closest('.code-line[data-help-title]')
+      ? event.relatedTarget.closest('.code-line')
       : null;
     if (next === line) return;
+    if (!next || next.dataset.codeFunction !== line.dataset.codeFunction) {
+      highlightCodeFunction(null);
+    }
     hideCodeTip();
   });
 
-  watchCodeEl.addEventListener('pointerleave', hideCodeTip);
+  watchCodeEl.addEventListener('pointerleave', () => {
+    highlightCodeFunction(null);
+    hideCodeTip();
+  });
   window.addEventListener('scroll', hideCodeTip, true);
   window.addEventListener('resize', hideCodeTip);
   window.addEventListener('blur', hideCodeTip);
@@ -1582,6 +1601,7 @@ function renderWatchCpp(focusBlockId) {
     const functionName = watchFunctionNameFromLine(line);
     if (functionName) currentFunction = functionName;
     else if (!line.trim()) currentFunction = null;
+    if (currentFunction) span.dataset.codeFunction = currentFunction;
 
     const blockId = watchCodeLineBlocks[index];
     const block = blockId ? findBlockById(blockId) : null;
@@ -1731,100 +1751,13 @@ function appIdFromName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 23) || 'blockcode-app';
 }
 
-let connectedWatchPort = null;
-
-async function ensureWatchConnection() {
-  if (connectedWatchPort) return connectedWatchPort;
-  if (!navigator.serial) {
-    throw new Error('USB serial selection requires Chrome or Edge over localhost or HTTPS.');
-  }
-  connectedWatchPort = await navigator.serial.requestPort({
-    filters: [{ usbVendorId: 0x303A, usbProductId: 0x1001 }]
-  });
-  return connectedWatchPort;
-}
-
-function watchAppCrc32(bytes) {
-  let crc = 0xFFFFFFFF;
-  for (let index = 0; index < bytes.length; index++) {
-    crc ^= bytes[index];
-    for (let bit = 0; bit < 8; bit++) {
-      crc = (crc >>> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
-    }
-  }
-  return (crc ^ 0xFFFFFFFF) >>> 0;
-}
-
-async function readWatchResponse(reader, needle, timeoutMs) {
-  const decoder = new TextDecoder();
-  let response = '';
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    let timer;
-    const result = await Promise.race([
-      reader.read(),
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve(null), Math.max(1, deadline - Date.now()));
-      })
-    ]);
-    clearTimeout(timer);
-    if (!result) {
-      await reader.cancel();
-      throw new Error('Timed out waiting for the watch. Check its USB connection and firmware.');
-    }
-    if (result.done) throw new Error('The watch disconnected during upload.');
-    response += decoder.decode(result.value, { stream: true });
-    if (response.includes(needle)) return response;
-    if (response.includes('QOS_ERR')) throw new Error(response.trim());
-  }
-  throw new Error('Timed out waiting for ' + needle + ' from the watch.');
-}
-
-async function uploadWatchPackage(port, appBlob, appId) {
-  const bytes = new Uint8Array(await appBlob.arrayBuffer());
-  if (!bytes.length || bytes.length > 4 * 1024 * 1024) {
-    throw new Error('The built app is empty or larger than the watch upload limit (4 MiB).');
-  }
-  const name = appId + '.app';
-  const crc = watchAppCrc32(bytes).toString(16).padStart(8, '0');
-  let reader = null;
-  let writer = null;
-  let opened = false;
-  try {
-    await port.open({ baudRate: 115200 });
-    opened = true;
-    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
-    reader = port.readable.getReader();
-    writer = port.writable.getWriter();
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-    const command = new TextEncoder().encode(
-      'QOSUPLOAD ' + bytes.length + ' ' + crc + ' ' + name + '\n'
-    );
-    await writer.write(command);
-    await readWatchResponse(reader, 'QOS_READY', 30000);
-
-    const chunkSize = 1024;
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      await writer.write(bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
-      if (offset + chunkSize < bytes.length) {
-        await new Promise((resolve) => setTimeout(resolve, 2));
-      }
-    }
-    const result = await readWatchResponse(reader, 'QOS_OK', 30000);
-    if (result.includes('QOS_ERR')) throw new Error(result.trim());
-  } finally {
-    if (reader) reader.releaseLock();
-    if (writer) writer.releaseLock();
-    if (opened) await port.close();
-  }
-}
-
-async function requestWatchApp(name, id, spriteAssets, backgroundAssets) {
+async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload) {
   const serviceOrigin = 'http://127.0.0.1:8765';
   const isBuildServicePage = location.protocol === 'http:' &&
     (location.hostname === '127.0.0.1' || location.hostname === 'localhost') &&
     location.port === '8765';
-  const buildUrl = isBuildServicePage ? '/build' : serviceOrigin + '/build';
+  const endpoint = upload ? 'upload' : 'build';
+  const buildUrl = isBuildServicePage ? '/' + endpoint : serviceOrigin + '/' + endpoint;
   const body = JSON.stringify({
     source: generateWatchCpp(spriteAssets, backgroundAssets),
     id: id,
@@ -1853,12 +1786,17 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets) {
   }
 
   if (!response.ok) {
-    let message = 'Build failed.';
+    let message = upload ? 'Watch upload failed.' : 'Build failed.';
     try {
       const detail = await response.json();
       if (detail.error) message = detail.error;
     } catch (error) { /* keep generic message */ }
     throw new Error(message);
+  }
+
+  if (upload) {
+    const result = await response.json();
+    return result.message || 'The watch accepted the app.';
   }
 
   return response.blob();
@@ -1911,15 +1849,6 @@ async function uploadWatchApp() {
     showToast('Stop the program before building it.');
     return;
   }
-  let port;
-  try {
-    port = await ensureWatchConnection();
-  } catch (error) {
-    if (error && error.name === 'NotFoundError') return;
-    showBuildError(error);
-    return;
-  }
-  if (!port) return;
   const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
   if (!name) return;
   const id = appIdFromName(name);
@@ -1931,12 +1860,9 @@ async function uploadWatchApp() {
   try {
     const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
     showBuildNotice('Building and uploading', 'Building ' + id + '.app…', 'loading', true);
-    const appBlob = await requestWatchApp(name, id, assets[0], assets[1]);
-    showBuildNotice('Building and uploading', 'Sending ' + id + '.app to the watch…', 'loading', true);
-    await uploadWatchPackage(port, appBlob, id);
-    showBuildNotice('Upload complete', 'Uploaded ' + id + '.app and its sprites to the watch.', 'success', false);
+    const result = await requestWatchApp(name, id, assets[0], assets[1], true);
+    showBuildNotice('Upload complete', result || ('Uploaded ' + id + '.app and its sprites to the watch.'), 'success', false);
   } catch (error) {
-    connectedWatchPort = null;
     showBuildError(error);
   } finally {
     uploadBtn.disabled = false;
@@ -2001,12 +1927,11 @@ async function runProgram() {
 
   try {
     await Promise.all(scriptsBySprite.map(async (item) => {
-      const ctx = { vars: vars, depth: 0, spriteId: item.spriteId };
-      activateRuntimeSprite(item.spriteId);
-      for (const script of item.scripts) {
+      await Promise.all(item.scripts.map(async (script) => {
+        const ctx = { vars: vars, depth: 0, spriteId: item.spriteId };
         if (token !== state.token) return;
         await executeStack(script, token, ctx);
-      }
+      }));
     }));
   } finally {
     if (selectedSpriteId) activateRuntimeSprite(selectedSpriteId);

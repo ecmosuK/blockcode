@@ -19,9 +19,14 @@ connection into `/sdcard/apps`; connect and power on the watch first. The local
 service uses `tools/push-app.py` from the Quantum OS project, which it expects at
 `~/Downloads/quantum-os/quantum-os` by default. Set `QUANTUM_OS_DIR` before
 starting the service if the project is elsewhere. The service is bound only to
-`127.0.0.1:8765`; it accepts requests from local files and localhost pages. The
-first build may download the Espressif ELF loader component and take several
-minutes; later builds reuse a local build cache.
+`127.0.0.1:8765`; it accepts requests from local files, localhost pages, and the
+configured hosted website origin. When using the hosted site, keep this service
+running and allow the browser to access local network devices if prompted. If a
+browser blocks that connection, open the local URL above instead. Uploads use
+the local Python uploader rather than the browser's Web Serial API, so they do
+not depend on a browser-specific COM-port picker. The first build may download
+the Espressif ELF loader component and take several minutes; later builds reuse
+a local build cache.
 
 For a different ESP-IDF installation, start the service from an ESP-IDF-exported
 shell so `IDF_PATH`, `IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` point at it.

@@ -2270,6 +2270,11 @@ body.is-resizing {
   background: color-mix(in srgb, var(--code-block-color) 20%, transparent);
 }
 
+.code-block .code-line.is-function-highlight {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--code-block-color, #38bdf8) 14%, transparent);
+}
+
 .code-tip {
   position: fixed;
   z-index: 4000;
