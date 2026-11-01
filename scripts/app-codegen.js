@@ -1859,15 +1859,6 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
     ).blob();
     headers['Content-Encoding'] = 'gzip';
   }
-  if (renderBuildApi) {
-    let token = sessionStorage.getItem('blockcode-render-build-token');
-    if (!token) {
-      token = (window.prompt('Enter the Render build token provided by the site owner:') || '').trim();
-      if (!token) throw new Error('A Render build token is required to build watch apps.');
-      sessionStorage.setItem('blockcode-render-build-token', token);
-    }
-    headers.Authorization = 'Bearer ' + token;
-  }
   let response;
   try {
     response = await fetch(buildUrl, {
@@ -1889,9 +1880,6 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
       const detail = await response.json();
       if (detail.error) message = detail.error;
     } catch (error) { /* keep generic message */ }
-    if (renderBuildApi && response.status === 401) {
-      sessionStorage.removeItem('blockcode-render-build-token');
-    }
     throw new Error(message);
   }
 
@@ -1903,7 +1891,6 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
       let statusResponse;
       try {
         statusResponse = await fetch('/build/jobs/' + encodeURIComponent(job.job_id), {
-          headers: { Authorization: headers.Authorization },
           cache: 'no-store'
         });
       } catch (error) {
@@ -1919,7 +1906,6 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
       if (status.status === 'failed') throw new Error(status.error || 'ESP-IDF build failed.');
       if (status.status === 'ready') {
         const download = await fetch('/build/jobs/' + encodeURIComponent(job.job_id) + '/download', {
-          headers: { Authorization: headers.Authorization },
           cache: 'no-store'
         });
         if (!download.ok) {

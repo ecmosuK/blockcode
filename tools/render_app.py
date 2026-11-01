@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import hmac
 import importlib.util
 import io
 import json
@@ -18,6 +17,8 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request, send_file, send_from_directory
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_SERVICE_PATH = ROOT / "tools" / "build-service.py"
 BUILD_SERVICE_SPEC = importlib.util.spec_from_file_location("blockcode_build_service", BUILD_SERVICE_PATH)
@@ -25,31 +26,17 @@ if BUILD_SERVICE_SPEC is None or BUILD_SERVICE_SPEC.loader is None:
     raise RuntimeError(f"Could not load build service module from {BUILD_SERVICE_PATH}")
 build_service = importlib.util.module_from_spec(BUILD_SERVICE_SPEC)
 BUILD_SERVICE_SPEC.loader.exec_module(build_service)
-BUILD_TOKEN = os.environ.get("BLOCKCODE_BUILD_TOKEN", "")
 MAX_REQUEST_BYTES = build_service.MAX_REQUEST_BYTES
 JOB_TTL_SECONDS = 60 * 60
+BUILD_LIMIT_PER_HOUR = max(1, int(os.environ.get("BLOCKCODE_BUILD_LIMIT_PER_HOUR", "20")))
+BUILD_LIMIT_WINDOW_SECONDS = 60 * 60
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 jobs: dict[str, dict[str, Any]] = {}
 jobs_lock = threading.Lock()
 active_job_id: str | None = None
+build_requests: dict[str, list[float]] = {}
 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="blockcode-build")
-
-
-def _authorized() -> bool:
-    if not BUILD_TOKEN:
-        return False
-    supplied = request.headers.get("Authorization", "")
-    if not supplied.startswith("Bearer "):
-        return False
-    return hmac.compare_digest(supplied[7:], BUILD_TOKEN)
-
-
-def _api_auth_error() -> tuple[Response, int] | None:
-    if not BUILD_TOKEN:
-        return jsonify(error="The build API is not configured. Set BLOCKCODE_BUILD_TOKEN in Render."), 503
-    if not _authorized():
-        return jsonify(error="Enter the Render build token to use the build service."), 401
-    return None
 
 
 def _prune_jobs() -> None:
@@ -126,10 +113,6 @@ def upload_not_supported() -> tuple[Response, int]:
 @app.post("/build")
 def start_build() -> tuple[Response, int] | Response:
     global active_job_id
-    auth_error = _api_auth_error()
-    if auth_error:
-        return auth_error
-
     content_length = request.content_length
     if content_length is None or content_length <= 0 or content_length > MAX_REQUEST_BYTES:
         return jsonify(error="Request body is empty or too large."), 400
@@ -151,8 +134,26 @@ def start_build() -> tuple[Response, int] | Response:
     job_id = uuid.uuid4().hex
     with jobs_lock:
         _prune_jobs()
+        now = time.time()
+        cutoff = now - BUILD_LIMIT_WINDOW_SECONDS
+        for ip_address, timestamps in list(build_requests.items()):
+            active_timestamps = [timestamp for timestamp in timestamps if timestamp > cutoff]
+            if active_timestamps:
+                build_requests[ip_address] = active_timestamps
+            else:
+                del build_requests[ip_address]
+        client_ip = request.remote_addr or "unknown"
+        recent_requests = [
+            timestamp for timestamp in build_requests.get(client_ip, [])
+            if timestamp > cutoff
+        ]
+        if len(recent_requests) >= BUILD_LIMIT_PER_HOUR:
+            build_requests[client_ip] = recent_requests
+            return jsonify(error="Build limit reached. Please try again later."), 429
         if active_job_id is not None:
             return jsonify(error="Another build is already running. Please wait for it to finish."), 429
+        recent_requests.append(now)
+        build_requests[client_ip] = recent_requests
         active_job_id = job_id
         jobs[job_id] = {"status": "building", "created": time.time(), "app_id": app_id}
         try:
@@ -166,9 +167,6 @@ def start_build() -> tuple[Response, int] | Response:
 
 @app.get("/build/jobs/<job_id>")
 def build_status(job_id: str) -> tuple[Response, int] | Response:
-    auth_error = _api_auth_error()
-    if auth_error:
-        return auth_error
     with jobs_lock:
         _prune_jobs()
         job = jobs.get(job_id)
@@ -182,9 +180,6 @@ def build_status(job_id: str) -> tuple[Response, int] | Response:
 
 @app.get("/build/jobs/<job_id>/download")
 def download_build(job_id: str) -> tuple[Response, int] | Response:
-    auth_error = _api_auth_error()
-    if auth_error:
-        return auth_error
     with jobs_lock:
         _prune_jobs()
         job = jobs.get(job_id)

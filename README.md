@@ -44,11 +44,11 @@ provider, then deploy the `render.yaml` Blueprint. Render builds the Docker
 image using ESP-IDF 6.1 and Linux speech tools. The first container build and
 the first watch-app build can take several minutes.
 
-Before deploying, generate a long, random build token and set it as the
-`BLOCKCODE_BUILD_TOKEN` environment variable in Render. The browser asks for
-this token the first time someone builds an app in that session. Treat it like
-a password and share it only with people you trust: anyone who has it can use
-the service's build resources. The service runs only one build at a time.
+The Render build endpoint is public and does not require a token. To limit
+resource use, it accepts up to 20 builds per client IP per hour, and only one
+build can run at a time. Set `BLOCKCODE_BUILD_LIMIT_PER_HOUR` in Render to
+change the per-IP limit. Anyone can submit builds, so monitor your Render
+usage and disable the service if it is abused.
 
 On Render Free, the service spins down after 15 minutes without traffic, so
 the first visit may take about a minute to wake. If ESP-IDF builds exceed the
