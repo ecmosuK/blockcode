@@ -1751,11 +1751,93 @@ function appIdFromName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 23) || 'blockcode-app';
 }
 
+let connectedWatchPort = null;
+
+async function ensureWatchConnection() {
+  if (connectedWatchPort) return connectedWatchPort;
+  if (!navigator.serial) {
+    throw new Error('Direct USB upload requires Chrome or Edge over HTTPS and a supported serial device.');
+  }
+  connectedWatchPort = await navigator.serial.requestPort({
+    filters: [{ usbVendorId: 0x303A, usbProductId: 0x1001 }]
+  });
+  return connectedWatchPort;
+}
+
+function watchAppCrc32(bytes) {
+  let crc = 0xFFFFFFFF;
+  for (let index = 0; index < bytes.length; index++) {
+    crc ^= bytes[index];
+    for (let bit = 0; bit < 8; bit++) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function readWatchResponse(reader, needle, timeoutMs) {
+  const decoder = new TextDecoder();
+  let response = '';
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    let timer;
+    const result = await Promise.race([
+      reader.read(),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(null), Math.max(1, deadline - Date.now()));
+      })
+    ]);
+    clearTimeout(timer);
+    if (!result) {
+      await reader.cancel();
+      throw new Error('Timed out waiting for the watch. Check its USB connection and firmware.');
+    }
+    if (result.done) throw new Error('The watch disconnected during upload.');
+    response += decoder.decode(result.value, { stream: true });
+    if (response.includes(needle)) return response;
+    if (response.includes('QOS_ERR')) throw new Error(response.trim());
+  }
+  throw new Error('Timed out waiting for ' + needle + ' from the watch.');
+}
+
+async function uploadWatchPackage(port, appBlob, appId) {
+  const bytes = new Uint8Array(await appBlob.arrayBuffer());
+  if (!bytes.length || bytes.length > 4 * 1024 * 1024) {
+    throw new Error('The built app is empty or larger than the watch upload limit (4 MiB).');
+  }
+  const crc = watchAppCrc32(bytes).toString(16).padStart(8, '0');
+  let reader = null;
+  let writer = null;
+  let opened = false;
+  try {
+    await port.open({ baudRate: 115200 });
+    opened = true;
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+    reader = port.readable.getReader();
+    writer = port.writable.getWriter();
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    await writer.write(new TextEncoder().encode(
+      'QOSUPLOAD ' + bytes.length + ' ' + crc + ' ' + appId + '.app\n'
+    ));
+    await readWatchResponse(reader, 'QOS_READY', 30000);
+
+    const chunkSize = 1024;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      await writer.write(bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+      if (offset + chunkSize < bytes.length) {
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+    }
+    await readWatchResponse(reader, 'QOS_OK', 30000);
+  } finally {
+    if (reader) reader.releaseLock();
+    if (writer) writer.releaseLock();
+    if (opened) await port.close();
+  }
+}
+
 async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload) {
   const renderBuildApi = window.BLOCKCODE_RENDER_BUILD_API === true;
-  if (renderBuildApi && upload) {
-    throw new Error('Render cannot access your computer’s USB port. Build the .app, download it, then upload it locally.');
-  }
 
   const serviceOrigin = 'http://127.0.0.1:8765';
   const isBuildServicePage = location.protocol === 'http:' &&
@@ -1902,13 +1984,20 @@ async function buildWatchApp() {
 }
 
 async function uploadWatchApp() {
-  if (window.BLOCKCODE_RENDER_BUILD_API === true) {
-    showBuildNotice('USB upload unavailable', 'Render cannot access your computer’s USB port. Use Build watch .app to download the package, then upload it locally.', 'error', false);
-    return;
-  }
   if (state.running) {
     showToast('Stop the program before building it.');
     return;
+  }
+  const renderBuildApi = window.BLOCKCODE_RENDER_BUILD_API === true;
+  let port = null;
+  if (renderBuildApi) {
+    try {
+      port = await ensureWatchConnection();
+    } catch (error) {
+      if (error && error.name === 'NotFoundError') return;
+      showBuildError(error);
+      return;
+    }
   }
   const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
   if (!name) return;
@@ -1921,11 +2010,19 @@ async function uploadWatchApp() {
   try {
     const assets = await Promise.all([prepareSpriteAssets(), prepareBackgroundAssets()]);
     showBuildNotice('Building and uploading', 'Building ' + id + '.app…', 'loading', true);
-    const result = await requestWatchApp(name, id, assets[0], assets[1], true);
-    showBuildNotice('Upload complete', result || ('Uploaded ' + id + '.app and its sprites to the watch.'), 'success', false);
+    if (renderBuildApi) {
+      const appBlob = await requestWatchApp(name, id, assets[0], assets[1]);
+      showBuildNotice('Building and uploading', 'Sending ' + id + '.app to the watch…', 'loading', true);
+      await uploadWatchPackage(port, appBlob, id);
+      showBuildNotice('Upload complete', 'Uploaded ' + id + '.app and its sprites to the watch.', 'success', false);
+    } else {
+      const result = await requestWatchApp(name, id, assets[0], assets[1], true);
+      showBuildNotice('Upload complete', result || ('Uploaded ' + id + '.app and its sprites to the watch.'), 'success', false);
+    }
   } catch (error) {
     showBuildError(error);
   } finally {
+    if (renderBuildApi) connectedWatchPort = null;
     uploadBtn.disabled = false;
     uploadBtn.textContent = originalText;
   }

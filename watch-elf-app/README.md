@@ -28,6 +28,11 @@ not depend on a browser-specific COM-port picker. The first build may download
 the Espressif ELF loader component and take several minutes; later builds reuse
 a local build cache.
 
+When using the Render-hosted site, the browser sends the finished package to
+the watch directly using Web Serial; this requires Chrome or Edge over HTTPS
+and the watch connected to the computer running the browser. The Render server
+builds the app but never accesses the computer's USB port.
+
 For a different ESP-IDF installation, start the service from an ESP-IDF-exported
 shell so `IDF_PATH`, `IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` point at it.
 

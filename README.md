@@ -52,7 +52,9 @@ the service's build resources. The service runs only one build at a time.
 
 On Render Free, the service spins down after 15 minutes without traffic, so
 the first visit may take about a minute to wake. If ESP-IDF builds exceed the
-free instance's resources, use a larger plan. Render cannot connect to a
-visitor's USB-connected watch: use **Build watch .app** to download the
-package, then upload it from a computer connected to the watch. The local
-service and GitHub Pages workflow continue to work as before.
+free instance's resources, use a larger plan. The Render-hosted **Upload to
+Watch** flow uses Web Serial in Chrome or Edge over HTTPS: choose the connected
+watch when prompted, then leave it connected while Render builds and transfers
+the app. Other browsers can use **Build watch .app** to download the package
+and upload it with the local Quantum OS uploader. The local service and GitHub
+Pages workflow continue to work as before.
