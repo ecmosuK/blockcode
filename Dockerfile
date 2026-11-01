@@ -7,7 +7,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN . "$IDF_PATH/export.sh" >/dev/null && python -m pip install --no-cache-dir -r requirements.txt
+RUN /bin/bash -c 'source "$IDF_PATH/export.sh" && python -m pip install --no-cache-dir -r requirements.txt'
 
 COPY . .
 
