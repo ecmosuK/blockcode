@@ -414,15 +414,26 @@ async function executeStack(blocks, token, ctx) {
 
     const action = (DEFS[block.type] && DEFS[block.type].action) || block.type;
     if (action === 'if') {
-      const condition = evalNumber(block.params.condition, ctx.vars) !== 0;
-      const next = stack[index + 1];
-      const hasElse = next && ((DEFS[next.type] && DEFS[next.type].action) || next.type) === 'else';
-      if (condition) {
+      let selectedBranch = evalNumber(block.params.condition, ctx.vars) !== 0
+        ? block
+        : null;
+      let branchIndex = index + 1;
+      while (branchIndex < stack.length) {
+        const branch = stack[branchIndex];
+        const branchAction = (DEFS[branch.type] && DEFS[branch.type].action) || branch.type;
+        if (branchAction !== 'elseif' && branchAction !== 'else') break;
+        if (!selectedBranch && (branchAction === 'else' ||
+            evalNumber(branch.params.condition, ctx.vars) !== 0)) {
+          selectedBranch = branch;
+        }
+        branchIndex++;
+        if (branchAction === 'else') break;
+      }
+      if (selectedBranch) await executeStack(selectedBranch.children, token, ctx);
+      index = branchIndex - 1;
+    } else if (action === 'elseif') {
+      if (evalNumber(block.params.condition, ctx.vars) !== 0) {
         await executeStack(block.children, token, ctx);
-        if (hasElse) index++;
-      } else if (hasElse) {
-        await executeStack(next.children, token, ctx);
-        index++;
       }
     } else if (action === 'else') {
       await executeStack(block.children, token, ctx);
@@ -469,6 +480,15 @@ async function executeBlock(block, token, ctx) {
 
     case 'forever': {
       while (token === state.token) {
+        if (!await executeStack(block.children, token, ctx)) return;
+        if (!block.children || !block.children.length) await sleep(16, token);
+        await sleep(0, token);
+      }
+      break;
+    }
+
+    case 'while': {
+      while (token === state.token && evalNumber(block.params.condition, vars) !== 0) {
         if (!await executeStack(block.children, token, ctx)) return;
         if (!block.children || !block.children.length) await sleep(16, token);
         await sleep(0, token);

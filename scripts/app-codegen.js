@@ -149,8 +149,22 @@ function emitCppBlock(block, indent, lines) {
       cppPush(lines, indent, '}');
       break;
 
+    case 'elseif':
+      cppPush(lines, indent, 'if (' + exprToCpp(block.params.condition) + ' != 0.0f) {');
+      emitCppBlocks(block.children, indent + 1, lines);
+      cppPush(lines, indent, '}');
+      break;
+
     case 'else':
       emitCppBlocks(block.children, indent, lines);
+      break;
+
+    case 'while':
+      cppPush(lines, indent, 'while (' + exprToCpp(block.params.condition) + ' != 0.0f && qos_app_running()) {');
+      emitCppBlocks(block.children, indent + 1, lines);
+      cppPush(lines, indent + 1, 'if (!qos_app_running()) break;');
+      cppPush(lines, indent + 1, 'watch_wait(0.016f);');
+      cppPush(lines, indent, '}');
       break;
 
     case 'repeat': {
@@ -308,19 +322,35 @@ function emitCppBlocks(blocks, indent, lines) {
   for (let index = 0; index < items.length; index++) {
     const block = items[index];
     const action = (DEFS[block.type] && DEFS[block.type].action) || block.type;
-    const next = items[index + 1];
-    const nextAction = next && ((DEFS[next.type] && DEFS[next.type].action) || next.type);
-    if (action === 'if' && nextAction === 'else') {
-      previewCodeBlockId = block.id;
-      cppPush(lines, indent, 'if (' + exprToCpp(block.params.condition) + ' != 0.0f) {');
-      emitCppBlocks(block.children, indent + 1, lines);
-      cppPush(lines, indent, '} else {');
-      emitCppBlocks(next.children, indent + 1, lines);
-      cppPush(lines, indent, '}');
-      index++;
-    } else {
+    if (action !== 'if') {
       emitCppBlock(block, indent, lines);
+      continue;
     }
+
+    previewCodeBlockId = block.id;
+    cppPush(lines, indent, 'if (' + exprToCpp(block.params.condition) + ' != 0.0f) {');
+    emitCppBlocks(block.children, indent + 1, lines);
+
+    let branchIndex = index + 1;
+    while (branchIndex < items.length) {
+      const branch = items[branchIndex];
+      const branchAction = (DEFS[branch.type] && DEFS[branch.type].action) || branch.type;
+      if (branchAction !== 'elseif' && branchAction !== 'else') break;
+
+      previewCodeBlockId = branch.id;
+      if (branchAction === 'elseif') {
+        cppPush(lines, indent, '} else if (' + exprToCpp(branch.params.condition) + ' != 0.0f) {');
+      } else {
+        cppPush(lines, indent, '} else {');
+      }
+      emitCppBlocks(branch.children, indent + 1, lines);
+      branchIndex++;
+      if (branchAction === 'else') break;
+    }
+
+    previewCodeBlockId = items[branchIndex - 1] && items[branchIndex - 1].id || block.id;
+    cppPush(lines, indent, '}');
+    index = branchIndex - 1;
   }
 }
 
@@ -1127,8 +1157,14 @@ function explainCodeBlock(block) {
     case 'if':
       text = 'Runs the steps inside only if the check is true.';
       break;
+    case 'elseif':
+      text = 'Checks this when the earlier checks were not true.';
+      break;
     case 'else':
       text = 'Runs these steps if the check above is not true.';
+      break;
+    case 'while':
+      text = 'Keeps doing these steps while the check stays true.';
       break;
     case 'repeat':
       text = 'Does the steps inside ' + param('times', '0') + ' times.';
@@ -1904,6 +1940,18 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
       }
       if (!statusResponse.ok) throw new Error(status.error || 'Could not check the Render build status.');
       if (status.status === 'failed') throw new Error(status.error || 'ESP-IDF build failed.');
+      if (status.status === 'building') {
+        const elapsed = Math.floor(status.elapsed_seconds || 0);
+        const elapsedLabel = elapsed >= 60
+          ? Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's'
+          : elapsed + 's';
+        showBuildNotice(
+          'Building watch app',
+          (status.progress || 'ESP-IDF build is running.') + ' (' + elapsedLabel + ' elapsed)',
+          'loading',
+          true
+        );
+      }
       if (status.status === 'ready') {
         const download = await fetch('/build/jobs/' + encodeURIComponent(job.job_id) + '/download', {
           cache: 'no-store'

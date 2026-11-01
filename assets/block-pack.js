@@ -135,9 +135,23 @@ window.BLOCK_PACK = {
       height: 44,
       fields: { condition: 0 },
       slots: [
-        { field: 'condition', type: 'value', x: 74, y: 7, w: 132, h: 24 }
+        { field: 'condition', type: 'value', x: 76, y: 7, w: 132, h: 24 }
       ],
       action: 'if',
+      cblock: true
+    },
+    {
+      type: 'elseif',
+      category: 'control',
+      label: 'else if',
+      sprite: 'assets/blocks/elseif.svg',
+      width: 262,
+      height: 44,
+      fields: { condition: 0 },
+      slots: [
+        { field: 'condition', type: 'value', x: 126, y: 7, w: 126, h: 24 }
+      ],
+      action: 'elseif',
       cblock: true
     },
     {
@@ -150,6 +164,20 @@ window.BLOCK_PACK = {
       fields: {},
       slots: [],
       action: 'else',
+      cblock: true
+    },
+    {
+      type: 'while',
+      category: 'control',
+      label: 'while',
+      sprite: 'assets/blocks/while.svg',
+      width: 250,
+      height: 44,
+      fields: { condition: 1 },
+      slots: [
+        { field: 'condition', type: 'value', x: 106, y: 7, w: 126, h: 24 }
+      ],
+      action: 'while',
       cblock: true
     },
     {

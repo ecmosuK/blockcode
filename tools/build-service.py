@@ -19,7 +19,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import wave
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -299,7 +301,12 @@ def idf_python() -> Path:
     return next((candidate for candidate in candidates if candidate.is_file()), Path(sys.executable))
 
 
-def build_watch_app(source: str, app_id: str, name: str) -> bytes:
+def build_watch_app(
+    source: str,
+    app_id: str,
+    name: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> bytes:
     source = embed_voice_clips(source)
     if not IDF_PATH.is_dir() or not (IDF_PATH / "tools" / "idf.py").is_file():
         raise RuntimeError("IDF_PATH is not set. Start the service from an ESP-IDF shell.")
@@ -318,17 +325,50 @@ def build_watch_app(source: str, app_id: str, name: str) -> bytes:
         (project / "main" / "blockcode-app.cpp").write_text(source, encoding="utf-8")
         configure_build_partition(project)
 
-        result = subprocess.run(
-            [str(idf_python()), str(IDF_PATH / "tools" / "idf.py"), "build"],
-            cwd=project,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=900,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise RuntimeError("ESP-IDF build failed:\n" + result.stdout[-12000:])
+        build_log = project.parent / "build.log"
+        command = [
+            str(idf_python()),
+            str(IDF_PATH / "tools" / "idf.py"),
+            "-j",
+            os.environ.get("BLOCKCODE_BUILD_JOBS", "2"),
+            "build",
+        ]
+        if progress_callback:
+            progress_callback("Starting ESP-IDF build.")
+        started = time.monotonic()
+        with build_log.open("w", encoding="utf-8", errors="replace") as log:
+            process = subprocess.Popen(
+                command,
+                cwd=project,
+                text=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            offset = 0
+            latest_line = ""
+            while process.poll() is None:
+                time.sleep(2)
+                log.flush()
+                with build_log.open("r", encoding="utf-8", errors="replace") as reader:
+                    reader.seek(offset)
+                    new_output = reader.read()
+                    offset = reader.tell()
+                new_lines = [line.strip() for line in new_output.splitlines() if line.strip()]
+                if new_lines:
+                    latest_line = new_lines[-1]
+                    print("[build-service] " + latest_line, flush=True)
+                    if progress_callback:
+                        progress_callback(latest_line[-240:])
+                if time.monotonic() - started > 900:
+                    process.kill()
+                    process.wait()
+                    raise subprocess.TimeoutExpired(command, 900)
+            return_code = process.wait()
+        output = build_log.read_text(encoding="utf-8", errors="replace")
+        if return_code != 0:
+            raise RuntimeError("ESP-IDF build failed:\n" + output[-12000:])
+        if progress_callback:
+            progress_callback("ESP-IDF build complete; packaging app.")
 
         elf_path = project / "build" / "blockcode_app.app.elf"
         if not elf_path.is_file():

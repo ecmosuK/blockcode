@@ -52,11 +52,20 @@ def _prune_jobs() -> None:
 def _run_build(job_id: str, source: str, app_id: str, name: str) -> None:
     global active_job_id
     try:
-        package = build_service.build_watch_app(source, app_id, name)
+        def update_progress(message: str) -> None:
+            with jobs_lock:
+                job = jobs.get(job_id)
+                if job:
+                    job["progress"] = message
+                    job["updated"] = time.time()
+            print(f"[render-build] {app_id}: {message}", flush=True)
+
+        update_progress("Preparing ESP-IDF project.")
+        package = build_service.build_watch_app(source, app_id, name, update_progress)
         with jobs_lock:
             job = jobs.get(job_id)
             if job:
-                job.update(status="ready", package=package)
+                job.update(status="ready", package=package, progress="Build complete.")
     except Exception as exc:
         with jobs_lock:
             job = jobs.get(job_id)
@@ -155,7 +164,13 @@ def start_build() -> tuple[Response, int] | Response:
         recent_requests.append(now)
         build_requests[client_ip] = recent_requests
         active_job_id = job_id
-        jobs[job_id] = {"status": "building", "created": time.time(), "app_id": app_id}
+        jobs[job_id] = {
+            "status": "building",
+            "created": time.time(),
+            "updated": time.time(),
+            "progress": "Queued for ESP-IDF.",
+            "app_id": app_id,
+        }
         try:
             executor.submit(_run_build, job_id, source, app_id, name)
         except Exception:
@@ -172,7 +187,11 @@ def build_status(job_id: str) -> tuple[Response, int] | Response:
         job = jobs.get(job_id)
         if not job:
             return jsonify(error="Build job was not found or has expired."), 404
-        result = {"status": job["status"]}
+        result = {
+            "status": job["status"],
+            "progress": job.get("progress", ""),
+            "elapsed_seconds": int(time.time() - job["created"]),
+        }
         if job["status"] == "failed":
             result["error"] = job.get("error", "Build failed.")
         return jsonify(result)
