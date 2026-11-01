@@ -37,6 +37,43 @@ jobs_lock = threading.Lock()
 active_job_id: str | None = None
 build_requests: dict[str, list[float]] = {}
 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="blockcode-build")
+warmup_lock = threading.Lock()
+warmup_state = "not_started"
+
+
+def _warm_build_cache() -> None:
+    global warmup_state
+    try:
+        template_source = (build_service.ELF_PROJECT / "main" / "blockcode-app.cpp").read_text(
+            encoding="utf-8"
+        )
+        build_service.build_watch_app(
+            template_source,
+            "blockcode_warmup",
+            "BlockCode warm-up",
+            lambda message: print(f"[render-warmup] {message}", flush=True),
+        )
+    except Exception as exc:
+        with warmup_lock:
+            warmup_state = "failed"
+        print(f"[render-warmup] Cache warm-up failed: {exc}", flush=True)
+    else:
+        with warmup_lock:
+            warmup_state = "ready"
+        print("[render-warmup] ESP-IDF build cache is ready.", flush=True)
+
+
+def _schedule_build_warmup() -> None:
+    global warmup_state
+    with warmup_lock:
+        if warmup_state != "not_started":
+            return
+        warmup_state = "warming"
+        try:
+            executor.submit(_warm_build_cache)
+        except Exception:
+            warmup_state = "not_started"
+            raise
 
 
 def _prune_jobs() -> None:
@@ -79,6 +116,7 @@ def _run_build(job_id: str, source: str, app_id: str, name: str) -> None:
 
 @app.get("/")
 def index() -> Response:
+    _schedule_build_warmup()
     html = (ROOT / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         "window.BLOCKCODE_RENDER_BUILD_API = false;",
@@ -161,6 +199,12 @@ def start_build() -> tuple[Response, int] | Response:
             return jsonify(error="Build limit reached. Please try again later."), 429
         if active_job_id is not None:
             return jsonify(error="Another build is already running. Please wait for it to finish."), 429
+        with warmup_lock:
+            progress = (
+                "Waiting for ESP-IDF warm-up."
+                if warmup_state == "warming"
+                else "Queued for ESP-IDF."
+            )
         recent_requests.append(now)
         build_requests[client_ip] = recent_requests
         active_job_id = job_id
@@ -168,7 +212,7 @@ def start_build() -> tuple[Response, int] | Response:
             "status": "building",
             "created": time.time(),
             "updated": time.time(),
-            "progress": "Queued for ESP-IDF.",
+            "progress": progress,
             "app_id": app_id,
         }
         try:
