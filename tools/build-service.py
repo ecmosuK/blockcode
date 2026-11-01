@@ -325,14 +325,17 @@ def build_watch_app(
         (project / "main" / "blockcode-app.cpp").write_text(source, encoding="utf-8")
         configure_build_partition(project)
 
+        build_jobs = os.environ.get("BLOCKCODE_BUILD_JOBS", "2")
+        if not build_jobs.isdecimal() or int(build_jobs) < 1:
+            raise RuntimeError("BLOCKCODE_BUILD_JOBS must be a positive integer.")
         build_log = project.parent / "build.log"
         command = [
             str(idf_python()),
             str(IDF_PATH / "tools" / "idf.py"),
-            "-j",
-            os.environ.get("BLOCKCODE_BUILD_JOBS", "2"),
             "build",
         ]
+        build_environment = os.environ.copy()
+        build_environment["IDF_PY_BUILD_JOBS"] = build_jobs
         if progress_callback:
             progress_callback("Starting ESP-IDF build.")
         started = time.monotonic()
@@ -343,6 +346,7 @@ def build_watch_app(
                 text=True,
                 stdout=log,
                 stderr=subprocess.STDOUT,
+                env=build_environment,
             )
             offset = 0
             latest_line = ""
