@@ -38,6 +38,7 @@ function initSpriteDragging() {
     const spriteId = extra ? extra.dataset.spriteId : state.spriteId;
     if (!spriteId) return;
 
+    const targetRect = target.getBoundingClientRect();
     event.preventDefault();
     draggedStageSprite = {
       element: extra || target,
@@ -45,6 +46,8 @@ function initSpriteDragging() {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      grabOffsetX: event.clientX - (targetRect.left + targetRect.width / 2),
+      grabOffsetY: event.clientY - (targetRect.top + targetRect.height / 2),
       moved: false,
       isActive: !extra
     };
@@ -55,13 +58,23 @@ function initSpriteDragging() {
     const drag = draggedStageSprite;
     if (!drag || drag.pointerId !== event.pointerId) return;
     const rect = stageEl.getBoundingClientRect();
-    const x = clamp((event.clientX - rect.left) / rect.width * 100, 5, 95);
-    const y = clamp((event.clientY - rect.top) / rect.height * 100, 5, 95);
 
     if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3) {
       drag.moved = true;
       drag.element.classList.add('is-preview-dragging');
+      if (drag.isActive) spriteEl.classList.add('is-preview-dragging');
     }
+
+    const x = clamp(
+      (event.clientX - drag.grabOffsetX - rect.left) / rect.width * 100,
+      5,
+      95
+    );
+    const y = clamp(
+      (event.clientY - drag.grabOffsetY - rect.top) / rect.height * 100,
+      5,
+      95
+    );
 
     if (drag.isActive) {
       const size = stageSize();
@@ -78,6 +91,7 @@ function initSpriteDragging() {
     if (!drag || drag.pointerId !== event.pointerId) return;
     draggedStageSprite = null;
     drag.element.classList.remove('is-preview-dragging');
+    if (drag.isActive) spriteEl.classList.remove('is-preview-dragging');
     if (drag.moved) {
       suppressSpriteClickUntil = Date.now() + 400;
       if (drag.isActive) saveActiveSpritePreviewPosition();

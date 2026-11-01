@@ -2056,6 +2056,10 @@ body.is-resizing {
   transition: left .35s cubic-bezier(.4, 0, .2, 1), top .35s cubic-bezier(.4, 0, .2, 1);
 }
 
+.sprite.is-preview-dragging {
+  transition: none;
+}
+
 .stage-extra-sprite {
   position: absolute;
   z-index: 2;

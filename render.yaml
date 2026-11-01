@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: blockcode
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: BLOCKCODE_BUILD_TOKEN
+        sync: false

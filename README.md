@@ -35,3 +35,24 @@ environment; keep it running while building. The service allows the
 origin, set `BLOCKCODE_ALLOWED_ORIGINS` to a comma-separated list of exact
 origins before starting the service. In Chrome or Edge, allow local-network
 access for the site if the browser asks.
+
+## Deploy the whole site and build API to Render
+
+The Render setup serves the frontend and build API from one Flask web service.
+The repository can remain private; connect Render to it through your Git
+provider, then deploy the `render.yaml` Blueprint. Render builds the Docker
+image using ESP-IDF 6.1 and Linux speech tools. The first container build and
+the first watch-app build can take several minutes.
+
+Before deploying, generate a long, random build token and set it as the
+`BLOCKCODE_BUILD_TOKEN` environment variable in Render. The browser asks for
+this token the first time someone builds an app in that session. Treat it like
+a password and share it only with people you trust: anyone who has it can use
+the service's build resources. The service runs only one build at a time.
+
+On Render Free, the service spins down after 15 minutes without traffic, so
+the first visit may take about a minute to wake. If ESP-IDF builds exceed the
+free instance's resources, use a larger plan. Render cannot connect to a
+visitor's USB-connected watch: use **Build watch .app** to download the
+package, then upload it from a computer connected to the watch. The local
+service and GitHub Pages workflow continue to work as before.

@@ -1752,12 +1752,18 @@ function appIdFromName(name) {
 }
 
 async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload) {
+  const renderBuildApi = window.BLOCKCODE_RENDER_BUILD_API === true;
+  if (renderBuildApi && upload) {
+    throw new Error('Render cannot access your computer’s USB port. Build the .app, download it, then upload it locally.');
+  }
+
   const serviceOrigin = 'http://127.0.0.1:8765';
   const isBuildServicePage = location.protocol === 'http:' &&
     (location.hostname === '127.0.0.1' || location.hostname === 'localhost') &&
     location.port === '8765';
   const endpoint = upload ? 'upload' : 'build';
-  const buildUrl = isBuildServicePage ? '/' + endpoint : serviceOrigin + '/' + endpoint;
+  const buildUrl = renderBuildApi ? '/' + endpoint :
+    (isBuildServicePage ? '/' + endpoint : serviceOrigin + '/' + endpoint);
   const body = JSON.stringify({
     source: generateWatchCpp(spriteAssets, backgroundAssets),
     id: id,
@@ -1771,6 +1777,15 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
     ).blob();
     headers['Content-Encoding'] = 'gzip';
   }
+  if (renderBuildApi) {
+    let token = sessionStorage.getItem('blockcode-render-build-token');
+    if (!token) {
+      token = (window.prompt('Enter the Render build token provided by the site owner:') || '').trim();
+      if (!token) throw new Error('A Render build token is required to build watch apps.');
+      sessionStorage.setItem('blockcode-render-build-token', token);
+    }
+    headers.Authorization = 'Bearer ' + token;
+  }
   let response;
   try {
     response = await fetch(buildUrl, {
@@ -1782,7 +1797,8 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
     throw new Error('Could not connect to the build service at ' +
       new URL(buildUrl, location.href).href + ' from page origin ' + location.origin +
       ': ' + (error.message || String(error)) +
-      ' Start the local build service at http://127.0.0.1:8765/ and allow this website to access your local network if your browser asks.');
+      (renderBuildApi ? ' The Render service may be starting from its idle state; wait a minute and retry.' :
+        ' Start the local build service at http://127.0.0.1:8765/ and allow this website to access your local network if your browser asks.'));
   }
 
   if (!response.ok) {
@@ -1791,7 +1807,48 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
       const detail = await response.json();
       if (detail.error) message = detail.error;
     } catch (error) { /* keep generic message */ }
+    if (renderBuildApi && response.status === 401) {
+      sessionStorage.removeItem('blockcode-render-build-token');
+    }
     throw new Error(message);
+  }
+
+  if (renderBuildApi) {
+    const job = await response.json();
+    const deadline = Date.now() + 18 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      let statusResponse;
+      try {
+        statusResponse = await fetch('/build/jobs/' + encodeURIComponent(job.job_id), {
+          headers: { Authorization: headers.Authorization },
+          cache: 'no-store'
+        });
+      } catch (error) {
+        throw new Error('Lost connection to the Render build service: ' + (error.message || String(error)));
+      }
+      let status;
+      try {
+        status = await statusResponse.json();
+      } catch (error) {
+        throw new Error('The Render build service returned an invalid status response.');
+      }
+      if (!statusResponse.ok) throw new Error(status.error || 'Could not check the Render build status.');
+      if (status.status === 'failed') throw new Error(status.error || 'ESP-IDF build failed.');
+      if (status.status === 'ready') {
+        const download = await fetch('/build/jobs/' + encodeURIComponent(job.job_id) + '/download', {
+          headers: { Authorization: headers.Authorization },
+          cache: 'no-store'
+        });
+        if (!download.ok) {
+          let detail = {};
+          try { detail = await download.json(); } catch (error) { /* use the generic message */ }
+          throw new Error(detail.error || 'Could not download the completed watch app.');
+        }
+        return download.blob();
+      }
+    }
+    throw new Error('The Render build took longer than 18 minutes. Try a smaller project or retry.');
   }
 
   if (upload) {
@@ -1845,6 +1902,10 @@ async function buildWatchApp() {
 }
 
 async function uploadWatchApp() {
+  if (window.BLOCKCODE_RENDER_BUILD_API === true) {
+    showBuildNotice('USB upload unavailable', 'Render cannot access your computer’s USB port. Use Build watch .app to download the package, then upload it locally.', 'error', false);
+    return;
+  }
   if (state.running) {
     showToast('Stop the program before building it.');
     return;
