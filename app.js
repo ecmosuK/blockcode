@@ -28,3 +28,4 @@ initPanels();
 initTabs();
 initStageObserver();
 syncStageGeometry();
+initCodeDictionary();

@@ -26,6 +26,10 @@
       </div>
       <div class="actions">
         <button id="runBtn" class="btn btn-run" type="button">Run</button>
+        <button id="dictionaryBtn" class="btn btn-dictionary" type="button" aria-haspopup="dialog" aria-controls="codeDictionary" aria-label="Open the code dictionary (F)" title="Open the code dictionary (F)">
+          Dictionary
+          <kbd class="key-hint" aria-hidden="true">F</kbd>
+        </button>
         <button id="stopBtn" class="btn" type="button" disabled>Stop</button>
         <button id="resetBtn" class="btn" type="button">Reset</button>
         <button id="clearBtn" class="btn btn-ghost" type="button">Clear</button>
@@ -203,6 +207,32 @@
     <h2 id="buildNoticeTitle"></h2>
     <pre id="buildNoticeMessage"></pre>
   </section>
+  <dialog id="codeDictionary" class="dictionary-dialog" aria-labelledby="dictionaryTitle" tabindex="-1">
+    <div class="dictionary-shell">
+      <header class="dictionary-header">
+        <div class="dictionary-heading">
+          <h2 id="dictionaryTitle">Code dictionary</h2>
+          <p>Every type, keyword, function, and build term used by BlockCode and its Watch C++.</p>
+        </div>
+        <button id="dictionaryClose" class="btn btn-small btn-ghost" type="button">Close</button>
+      </header>
+      <div class="dictionary-search-row">
+        <label class="dictionary-search">
+          <svg class="dictionary-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6.5"></circle>
+            <path d="m15.5 15.5 4.5 4.5"></path>
+          </svg>
+          <input id="dictionarySearch" type="search" placeholder="Search terms, categories, or definitions…" aria-label="Search the code dictionary" autocomplete="off" spellcheck="false">
+        </label>
+        <span id="dictionaryCount" class="dictionary-count" aria-live="polite"></span>
+      </div>
+      <div id="dictionaryResults" class="dictionary-results" tabindex="0"></div>
+      <footer class="dictionary-footer">
+        <span><kbd>F</kbd> opens or closes <span aria-hidden="true">·</span> <kbd>Esc</kbd> closes</span>
+        <span>Search checks terms, categories, definitions, and examples.</span>
+      </footer>
+    </div>
+  </dialog>
   <div id="snapPreview" class="snap-preview" aria-hidden="true"></div>
   <div id="codeTip" class="code-tip" role="tooltip" aria-hidden="true"></div>
   <script>window.BLOCKCODE_RENDER_BUILD_API = false;</script>
@@ -214,6 +244,7 @@
   <script src="scripts/app-drag.js"></script>
   <script src="scripts/app-runtime.js"></script>
   <script src="scripts/app-codegen.js"></script>
+  <script src="scripts/app-dictionary.js"></script>
   <script src="scripts/app-ui.js"></script>
   <script src="app.js"></script>
 </body>
