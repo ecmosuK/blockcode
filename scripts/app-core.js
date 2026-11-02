@@ -151,7 +151,6 @@ const BOOLEAN_CONDITION_BLOCKS = new Set(['if', 'elseif', 'while']);
 const COMPARISON_REPORTER_ACTIONS = new Set([
   'equals', 'less', 'greater'
 ]);
-const BOOLEAN_SENSING_ACTIONS = new Set(['touching']);
 
 function defaultBlockFieldValue(type, field) {
   if (field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(type)) {
@@ -166,7 +165,7 @@ function defaultBlockFieldValue(type, field) {
 function isConditionReporter(block) {
   const def = block && DEFS[block.type];
   return !!(def && def.reporter &&
-    (COMPARISON_REPORTER_ACTIONS.has(def.action) || BOOLEAN_SENSING_ACTIONS.has(def.action)));
+    (COMPARISON_REPORTER_ACTIONS.has(def.action) || def.category === 'sensing'));
 }
 
 function isCBlock(block) {
