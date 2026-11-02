@@ -945,8 +945,8 @@ function previewRunnableProgram() {
 
   const stacks = [];
   workspace.forEach((script, index) => {
-    if (!script.length || isDefine(script[0]) || !isHat(script[0])) return;
-    if (script.length <= 1) return;
+    if (!script.length || isDefine(script[0])) return;
+    if (isHat(script[0]) && script.length <= 1) return;
     stacks.push({ script: script, index: index });
   });
 
@@ -965,7 +965,7 @@ function previewRunnableProgram() {
     });
   };
 
-  stacks.forEach((stack) => collectCalls(stack.script.slice(1)));
+  stacks.forEach((stack) => collectCalls(previewStackBody(stack)));
   let changed = true;
   while (changed) {
     changed = false;
@@ -990,6 +990,10 @@ function previewRunnableProgram() {
     functions: functions,
     hasProgram: hasProgram
   };
+}
+
+function previewStackBody(stack) {
+  return isHat(stack.script[0]) ? stack.script.slice(1) : stack.script;
 }
 
 function collectPreviewExpressionHelpers(value, seeds) {
@@ -1188,7 +1192,7 @@ function generateWatchCppPreview() {
   }
 
   const containers = program.stacks
-    .map((stack) => stack.script.slice(1))
+    .map(previewStackBody)
     .concat(program.functions.map((definition) => definition.script.slice(1)));
   const helperInfo = collectPreviewHelperSeeds(containers);
   const neededHelpers = resolvePreviewHelpers(helperInfo.seeds);
@@ -1242,9 +1246,11 @@ function generateWatchCppPreview() {
       ? '// Click-triggered stack; invoked by clicking its sprite in the preview.'
       : (signalHat
         ? '// Signal-triggered stack: ' + String(script[0].params.message || '')
-        : '// Stack ' + (scriptIndex + 1) + ': runs when started'), script[0]);
+        : (isStartupHat(script[0])
+          ? '// Stack ' + (scriptIndex + 1) + ': runs when started'
+          : '// Workspace stack ' + (scriptIndex + 1))), script[0]);
     add('static void ' + name + '(void) {', script[0]);
-    emitCppBlocks(clickStack || signalHat ? script.slice(1) : script, 1, lines);
+    emitCppBlocks(previewStackBody(stack), 1, lines);
     add('}', script[0]);
     add('');
   });
@@ -1685,6 +1691,17 @@ function codeLineFromEvent(event) {
     : null;
 }
 
+function dictionaryTermForCodeLine(line) {
+  const text = line.textContent || '';
+  const identifiers = text.match(/\b[A-Za-z_]\w*\b/g) || [];
+  const operators = text.match(/==|!=|<=|>=|[<>=+\-*\/]/);
+  return identifiers.find((term) => term.indexOf('watch_') === 0) ||
+    identifiers.find((term) =>
+      ['if', 'else', 'while', 'for', 'return', 'static', 'float', 'int',
+        'bool', 'void', 'const', 'true', 'false'].includes(term)) ||
+    (operators && operators[0]) || identifiers[0] || '';
+}
+
 function highlightCodeFunction(group) {
   if (!watchCodeEl) return;
   watchCodeEl.querySelectorAll('.code-line.is-function-highlight').forEach((line) => {
@@ -1743,6 +1760,17 @@ function showCodeTip(line, x, y) {
     codeTipEl.appendChild(code);
   }
 
+  const lookup = document.createElement('button');
+  lookup.type = 'button';
+  lookup.className = 'code-tip-lookup';
+  lookup.textContent = 'Look up a definition';
+  lookup.addEventListener('click', () => {
+    if (typeof openCodeDictionary === 'function') {
+      openCodeDictionary(true, dictionaryTermForCodeLine(line));
+    }
+  });
+  codeTipEl.appendChild(lookup);
+
   codeTipEl.classList.add('is-visible');
   codeTipEl.setAttribute('aria-hidden', 'false');
   codeTipVisible = true;
@@ -1778,6 +1806,8 @@ function initCodeTooltip() {
   watchCodeEl.addEventListener('pointerout', (event) => {
     const line = codeLineFromEvent(event);
     if (!line) return;
+    if (event.relatedTarget && event.relatedTarget.nodeType &&
+        codeTipEl.contains(event.relatedTarget)) return;
     const next = event.relatedTarget && event.relatedTarget.closest
       ? event.relatedTarget.closest('.code-line')
       : null;
@@ -1790,8 +1820,9 @@ function initCodeTooltip() {
 
   watchCodeEl.addEventListener('pointerleave', () => {
     highlightCodeFunction(null);
-    hideCodeTip();
+    if (!codeTipEl.matches(':hover')) hideCodeTip();
   });
+  codeTipEl.addEventListener('pointerleave', hideCodeTip);
   window.addEventListener('scroll', hideCodeTip, true);
   window.addEventListener('resize', hideCodeTip);
   window.addEventListener('blur', hideCodeTip);

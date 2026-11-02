@@ -154,7 +154,7 @@ const COMPARISON_REPORTER_ACTIONS = new Set([
 
 function defaultBlockFieldValue(type, field) {
   if (field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(type)) {
-    return makeBlock('equals');
+    return null;
   }
   const def = DEFS[type];
   return def && def.fields && def.fields[field] !== undefined

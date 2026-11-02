@@ -2883,13 +2883,14 @@ function renderCodeDictionary(query) {
   results.appendChild(fragment);
 }
 
-function openCodeDictionary(focusSearch) {
+function openCodeDictionary(focusSearch, query) {
   const dialog = document.getElementById('codeDictionary');
   const search = document.getElementById('dictionarySearch');
   if (!dialog) return;
+  const searchQuery = String(query || '');
+  if (search) search.value = searchQuery;
+  renderCodeDictionary(searchQuery);
   if (!dialog.open) {
-    if (search) search.value = '';
-    renderCodeDictionary('');
     dialog.showModal();
   }
   if (focusSearch && search) {
