@@ -231,6 +231,7 @@ function showStackPreview(target) {
   const rect = container.getBoundingClientRect();
   snapPreview.style.left = rect.left + 'px';
   snapPreview.style.top = rect.top + 'px';
+  snapPreview.style.transform = 'scale(' + workspaceZoom + ')';
   container.classList.add('is-stack-preview-source');
   stackPreviewSource = container;
   snapPreview.style.display = 'flex';

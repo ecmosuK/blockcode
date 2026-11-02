@@ -19,6 +19,7 @@ function applySlotGeometry(el, slot) {
   el.style.top = slot.y + 'px';
   el.style.width = slot.w + 'px';
   el.style.height = slot.h + 'px';
+  el.dataset.field = slot.field;
 }
 
 function selectOptionsFor(type) {
@@ -106,6 +107,44 @@ function saveWorkspaceLists() {
 }
 
 const VALUE_SOCKET_DIAMETER = 30;
+let blockTextMeasureContext = null;
+
+function blockTextWidth(text, font) {
+  if (!blockTextMeasureContext) {
+    blockTextMeasureContext = document.createElement('canvas').getContext('2d');
+  }
+  if (!blockTextMeasureContext) return String(text || '').length * 8;
+  blockTextMeasureContext.font = font;
+  return blockTextMeasureContext.measureText(String(text || '')).width;
+}
+
+function blockSlotContentWidth(block, slot) {
+  if (slot.type === 'text') {
+    const def = DEFS[block.type];
+    const text = block.params[slot.field] == null
+      ? (def.fields && def.fields[slot.field]) || ''
+      : block.params[slot.field];
+    return Math.max(slot.w, Math.ceil(blockTextWidth(text, '600 12.5px sans-serif') + 16));
+  }
+  if (slot.type === 'sprite' || slot.type === 'touching' || slot.type === 'background' ||
+      slot.type === 'function' || slot.type === 'variable' || slot.type === 'list') {
+    let options = selectOptionsFor(slot.type);
+    if (slot.type === 'touching') {
+      options = [{ value: 'edge', label: 'edge' }].concat(selectOptionsFor('sprite'));
+    }
+    if (!options.length && slot.type === 'function') options = [{ label: 'no functions' }];
+    if (!options.length && (slot.type === 'sprite' || slot.type === 'touching')) {
+      options = [{ label: 'no sprites' }];
+    }
+    const textWidth = options.reduce((width, option) =>
+      Math.max(width, blockTextWidth(option.label, '600 11px sans-serif')), 0);
+    return Math.max(slot.w, Math.ceil(textWidth + 26));
+  }
+  if (slot.type === 'value' && isExpression(block.params[slot.field])) {
+    return Math.max(slot.w, blockRenderSize(block.params[slot.field]).width);
+  }
+  return slot.w;
+}
 
 function expressionSuffixSpace(slot) {
   return slot.suffix ? 6 + (slot.suffixWidth || 0) : 0;
@@ -117,12 +156,13 @@ function blockSlotLayouts(block) {
 
   let shift = 0;
   return (def.slots || []).map((slot) => {
-    const layout = Object.assign({}, slot, { x: slot.x + shift });
-    const value = block.params[slot.field];
-    if (slot.type === 'value' && isExpression(value)) {
-      shift += Math.max(0, blockRenderSize(value).width - slot.w) +
-        expressionSuffixSpace(slot);
-    }
+    const layout = Object.assign({}, slot, {
+      x: slot.x + shift,
+      w: blockSlotContentWidth(block, slot)
+    });
+    const hasExpression = slot.type === 'value' && isExpression(block.params[slot.field]);
+    shift += Math.max(0, layout.w - slot.w) +
+      (hasExpression ? expressionSuffixSpace(slot) : 0);
     return layout;
   });
 }
@@ -136,8 +176,7 @@ function blockRenderSize(block) {
   blockSlotLayouts(block).forEach((slot) => {
     const value = block.params[slot.field];
     const hasExpression = slot.type === 'value' && isExpression(value);
-    const contentWidth = hasExpression ? blockRenderSize(value).width : slot.w;
-    requiredWidth = Math.max(requiredWidth, slot.x + contentWidth +
+    requiredWidth = Math.max(requiredWidth, slot.x + slot.w +
       (hasExpression ? expressionSuffixSpace(slot) : 0));
   });
 
@@ -228,9 +267,26 @@ function renderTextSlot(block, slot, palette) {
     input.focus();
   });
   input.addEventListener('input', () => {
+    const previousContentWidth = blockSlotContentWidth(block, slot);
+    const previousWidth = blockRenderSize(block).width;
     block.params[slot.field] = input.value;
+    let rerendered = false;
+    if (!palette && (blockSlotContentWidth(block, slot) !== previousContentWidth ||
+        blockRenderSize(block).width !== previousWidth)) {
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      renderWorkspace(block.id);
+      rerendered = true;
+      const nextInput = scriptsEl.querySelector(
+        '.block[data-id="' + block.id + '"] .block-slot.text[data-field="' + slot.field + '"]'
+      );
+      if (nextInput) {
+        nextInput.focus();
+        if (start !== null && end !== null) nextInput.setSelectionRange(start, end);
+      }
+    }
     if (block.type === 'define') refreshFunctionSelects();
-    renderWatchCpp(block.id);
+    if (!rerendered) renderWatchCpp(block.id);
   });
   input.addEventListener('blur', () => {
     if (block.type === 'define') refreshFunctionSelects();

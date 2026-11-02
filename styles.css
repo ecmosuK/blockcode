@@ -828,6 +828,7 @@ body.is-resizing {
   align-items: flex-start;
   gap: 0;
   pointer-events: none;
+  transform-origin: top left;
 }
 
 .is-stack-preview-source {
