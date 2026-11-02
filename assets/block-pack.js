@@ -195,6 +195,68 @@ window.BLOCK_PACK = {
       reporter: true
     },
     {
+      type: 'xposition',
+      category: 'sensing',
+      label: 'x position',
+      sprite: 'assets/blocks/xposition.svg',
+      width: 150,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'xposition',
+      reporter: true
+    },
+    {
+      type: 'yposition',
+      category: 'sensing',
+      label: 'y position',
+      sprite: 'assets/blocks/yposition.svg',
+      width: 150,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'yposition',
+      reporter: true
+    },
+    {
+      type: 'direction',
+      category: 'sensing',
+      label: 'direction',
+      sprite: 'assets/blocks/direction.svg',
+      width: 150,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'direction',
+      reporter: true
+    },
+    {
+      type: 'sensesize',
+      category: 'sensing',
+      label: 'size',
+      sprite: 'assets/blocks/sensesize.svg',
+      width: 120,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'sensesize',
+      reporter: true
+    },
+    {
+      type: 'distance',
+      category: 'sensing',
+      label: 'distance to',
+      sprite: 'assets/blocks/distance.svg',
+      width: 210,
+      height: 36,
+      fields: { sprite: 'rocket' },
+      slots: [
+        { field: 'sprite', type: 'sprite', x: 104, y: 7, w: 92, h: 22 }
+      ],
+      action: 'distance',
+      reporter: true
+    },
+    {
       type: 'equals',
       category: 'math',
       label: 'equals',

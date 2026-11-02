@@ -276,6 +276,19 @@ function evalNumber(value, vars) {
         const list = vars.__lists[value.params.list] || [];
         return list.includes(String(value.params.item || '')) ? 1 : 0;
       }
+      case 'xposition': return state.x - stageSize().w / 2;
+      case 'yposition': return stageSize().h / 2 - state.y;
+      case 'direction': return ((state.heading % 360) + 360) % 360;
+      case 'sensesize': return state.size;
+      case 'distance': {
+        const target = String(value.params.sprite || '');
+        if (!target || target === state.spriteId) return 0;
+        const position = spritePreviewPositions[target] || defaultSpritePreviewPosition(target);
+        const size = stageSize();
+        const otherX = size.w * position.x / 100;
+        const otherY = size.h * position.y / 100;
+        return Math.hypot(state.x - otherX, state.y - otherY);
+      }
       case 'equals': return a() === b() ? 1 : 0;
       case 'less': return a() < b() ? 1 : 0;
       case 'greater': return a() > b() ? 1 : 0;

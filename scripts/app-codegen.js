@@ -51,6 +51,11 @@ function exprToCpp(value) {
         return '(std::find(' + list + '.begin(), ' + list + '.end(), ' +
           cppString(value.params.item) + ') != ' + list + '.end() ? 1.0f : 0.0f)';
       }
+      case 'xposition': return '(watch_x - 205.0f)';
+      case 'yposition': return '(251.0f - watch_y)';
+      case 'direction': return 'watch_heading';
+      case 'sensesize': return 'watch_size';
+      case 'distance': return 'watch_distance_to(' + cppString(value.params.sprite) + ')';
       case 'equals': return '(' + a() + ' == ' + b() + ' ? 1.0f : 0.0f)';
       case 'less': return '(' + a() + ' < ' + b() + ' ? 1.0f : 0.0f)';
       case 'greater': return '(' + a() + ' > ' + b() + ' ? 1.0f : 0.0f)';
@@ -1094,6 +1099,20 @@ function generateWatchCpp(spriteAssets, backgroundAssets) {
   });
   add('  return false;');
   add('}');
+  add('static float watch_distance_to(const char *target) {');
+  add('  if (!target || strcmp(target, watch_sprite) == 0) return 0.0f;');
+  allSprites().forEach((sprite) => {
+    const position = spritePreviewPositions[sprite.id] || defaultSpritePreviewPosition(sprite.id);
+    const x = formatFloat(position.x * 4.1);
+    const y = formatFloat(position.y * 5.02);
+    add('  if (strcmp(target, ' + cppString(sprite.id) + ') == 0) {');
+    add('    const float dx = watch_x - ' + x + ';');
+    add('    const float dy = watch_y - ' + y + ';');
+    add('    return sqrtf(dx * dx + dy * dy);');
+    add('  }');
+  });
+  add('  return 0.0f;');
+  add('}');
   add('static void watch_broadcast(const char *message);');
   add('');
 
@@ -1451,6 +1470,21 @@ function explainCodeBlock(block) {
       break;
     case 'touching':
       text = 'Checks if the sprite is touching an edge or another sprite.';
+      break;
+    case 'xposition':
+      text = 'Gives the sprite’s left-or-right position. The middle is 0.';
+      break;
+    case 'yposition':
+      text = 'Gives the sprite’s up-or-down position. The middle is 0.';
+      break;
+    case 'direction':
+      text = 'Gives the direction the sprite is facing, in degrees.';
+      break;
+    case 'sensesize':
+      text = 'Gives the sprite’s size as a percent of its usual size.';
+      break;
+    case 'distance':
+      text = 'Gives the distance from this sprite to "' + param('sprite', 'sprite') + '".';
       break;
     default:
       text = 'Runs the "' + label + '" block.';

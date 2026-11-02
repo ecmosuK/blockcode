@@ -1014,6 +1014,13 @@ const CODE_DICTIONARY_GROUPS = [
         aliases: ['touching', 'collision', 'hit test', 'edge', 'target', 'radius']
       },
       {
+        term: 'watch_distance_to',
+        kind: 'function',
+        definition: 'Finds how far this sprite is from another sprite.',
+        example: 'watch_distance_to("rocket")',
+        aliases: ['distance to sprite', 'distance sensor', 'measure distance']
+      },
+      {
         term: 'watch_broadcast',
         kind: 'function',
         definition: 'Sends a named message so matching “when I receive” blocks can run.',
@@ -2241,6 +2248,41 @@ const CODE_DICTIONARY_GROUPS = [
         definition: 'Answers yes if the sprite touches the edge or another sprite.',
         example: 'watch_touching("edge")',
         aliases: ['collision', 'hit test', 'sensing']
+      },
+      {
+        term: 'x position',
+        kind: 'reporter',
+        definition: 'Tells how far left or right the sprite is. The middle is 0.',
+        example: '(watch_x - 205.0f)',
+        aliases: ['x position', 'x coordinate', 'horizontal position']
+      },
+      {
+        term: 'y position',
+        kind: 'reporter',
+        definition: 'Tells how far up or down the sprite is. The middle is 0.',
+        example: '(251.0f - watch_y)',
+        aliases: ['y position', 'y coordinate', 'vertical position']
+      },
+      {
+        term: 'direction',
+        kind: 'reporter',
+        definition: 'Tells which way the sprite is facing, in degrees.',
+        example: 'watch_heading',
+        aliases: ['heading', 'angle', 'sprite direction']
+      },
+      {
+        term: 'size',
+        kind: 'reporter',
+        definition: 'Tells how big the sprite is compared with its usual size.',
+        example: 'watch_size',
+        aliases: ['sprite size', 'size percent']
+      },
+      {
+        term: 'distance to sprite',
+        kind: 'reporter',
+        definition: 'Tells how far this sprite is from another sprite.',
+        example: 'watch_distance_to("rocket")',
+        aliases: ['distance', 'distance to', 'measure distance']
       },
       {
         term: 'equals (=)',

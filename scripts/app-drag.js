@@ -673,8 +673,8 @@ function onExpressionMove(event) {
   scriptsEl.querySelectorAll('.expr-slot').forEach((slot) => {
     const targetBlock = findExpressionBlockById(slot.dataset.blockId);
     if (targetBlock && findBlockInTree(expressionDrag.block, targetBlock.id)) return;
-    if (slot.dataset.requiresComparison === 'true' &&
-        !isComparisonReporter(expressionDrag.block)) return;
+    if (slot.dataset.requiresConditionReporter === 'true' &&
+        !isConditionReporter(expressionDrag.block)) return;
 
     const rect = slot.getBoundingClientRect();
     const overlapWidth = Math.max(0,

@@ -303,7 +303,7 @@ function renderValueSlot(block, slot, palette) {
   holder.dataset.field = slot.field;
   holder.dataset.type = 'value';
   if (slot.field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(block.type)) {
-    holder.dataset.requiresComparison = 'true';
+    holder.dataset.requiresConditionReporter = 'true';
   }
   const value = slotValue(block, slot);
   const expression = isExpression(value);
@@ -432,7 +432,7 @@ function renderBlock(block, path, opts) {
   opts = opts || {};
   const def = DEFS[block.type];
   if (!def) return null;
-  if (BOOLEAN_CONDITION_BLOCKS.has(block.type) && !isComparisonReporter(block.params.condition)) {
+  if (BOOLEAN_CONDITION_BLOCKS.has(block.type) && !isConditionReporter(block.params.condition)) {
     block.params.condition = defaultBlockFieldValue(block.type, 'condition');
   }
 
