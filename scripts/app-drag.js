@@ -247,6 +247,26 @@ function targetInsideSource(d, parentPath) {
   return true;
 }
 
+function candidatePreservesHatOrder(candidate, d) {
+  const incoming = d.groupBlocks || [d.block];
+  if (incoming.some((block) => isHat(block)) && candidate.parentPath.length !== 1) {
+    return false;
+  }
+
+  const blocks = candidate.container.slice();
+  const sourceContainer = d.from ? containerAtPath(d.parentPath) : null;
+  const sourceCount = d.groupBlocks ? d.groupBlocks.length : 1;
+  const movingWithinContainer = sourceContainer === candidate.container;
+  if (movingWithinContainer) blocks.splice(d.startIndex, sourceCount);
+
+  let index = candidate.index;
+  if (movingWithinContainer && d.startIndex < candidate.index) index -= sourceCount;
+  index = clamp(index, 0, blocks.length);
+  blocks.splice(index, 0, ...incoming);
+
+  return blocks.every((block, blockIndex) => !isHat(block) || blockIndex === 0);
+}
+
 function updateDropTarget(x, y) {
   const canvasRect = canvasEl.getBoundingClientRect();
   drag.inside = x >= canvasRect.left && x <= canvasRect.right &&
@@ -354,7 +374,8 @@ function updateDropTarget(x, y) {
   });
 
   const eligible = Array.from(candidates.values()).filter((candidate) =>
-    candidate.gap <= STACK_SNAP_DISTANCE);
+    candidate.gap <= STACK_SNAP_DISTANCE &&
+    candidatePreservesHatOrder(candidate, drag));
   eligible.sort((a, b) => a.gap - b.gap || a.key.localeCompare(b.key));
   let best = eligible[0] || null;
   if (best && previousTargetKey) {

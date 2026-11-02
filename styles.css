@@ -765,6 +765,11 @@ body.is-resizing {
   font-weight: 600;
 }
 
+.block[data-type="signal"] .block-slot.text,
+.block[data-type="broadcast"] .block-slot.text {
+  background: #fff;
+}
+
 .block-slot:focus {
   outline: 2px solid rgba(37, 99, 235, .75);
   outline-offset: 0;
