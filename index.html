@@ -234,6 +234,13 @@
     </div>
   </dialog>
   <div id="snapPreview" class="snap-preview" aria-hidden="true"></div>
+  <div id="codeSelectionLookup" class="code-selection-lookup" role="group" aria-label="Look up selected code" hidden>
+    <div class="code-selection-lookup-head">
+      <code id="codeSelectionText"></code>
+      <button id="codeSelectionClose" class="code-selection-close" type="button" aria-label="Close definition search">×</button>
+    </div>
+    <button id="codeSelectionSearch" class="code-tip-lookup" type="button">Search definition</button>
+  </div>
   <div id="codeTip" class="code-tip" role="tooltip" aria-hidden="true"></div>
   <script>window.BLOCKCODE_RENDER_BUILD_API = false;</script>
   <script src="assets/block-pack.js"></script>

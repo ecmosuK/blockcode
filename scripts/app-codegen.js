@@ -1717,6 +1717,10 @@ function highlightCodeBlock(blockId) {
 
 let codeTipEl = null;
 let codeTipVisible = false;
+let codeSelectionLookupEl = null;
+let codeSelectionTextEl = null;
+let codeSelectionTimer = null;
+let codeSelectionQuery = '';
 
 function codeLineFromEvent(event) {
   const target = event.target;
@@ -1734,6 +1738,41 @@ function dictionaryTermForCodeLine(line) {
       ['if', 'else', 'while', 'for', 'return', 'static', 'float', 'int',
         'bool', 'void', 'const', 'true', 'false'].includes(term)) ||
     (operators && operators[0]) || identifiers[0] || '';
+}
+
+function dictionaryQueryForSelection(text) {
+  const query = String(text || '').trim();
+  if (/^var_[A-Za-z0-9_]+$/.test(query)) return 'variable';
+  return query;
+}
+
+function updateCodeSelectionLookup() {
+  if (!watchCodeEl || !codeSelectionLookupEl) return;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!watchCodeEl.contains(range.commonAncestorContainer)) return;
+
+  const text = selection.toString().trim();
+  if (!text) return;
+  codeSelectionQuery = dictionaryQueryForSelection(text);
+  codeSelectionTextEl.textContent = text;
+  codeSelectionLookupEl.hidden = false;
+
+  const selectionRect = range.getBoundingClientRect();
+  const popupRect = codeSelectionLookupEl.getBoundingClientRect();
+  const margin = 12;
+  const gap = 10;
+  const left = Math.max(margin, Math.min(
+    selectionRect.left,
+    window.innerWidth - popupRect.width - margin
+  ));
+  let top = selectionRect.bottom + gap;
+  if (top + popupRect.height > window.innerHeight - margin) {
+    top = selectionRect.top - popupRect.height - gap;
+  }
+  codeSelectionLookupEl.style.left = Math.max(margin, left) + 'px';
+  codeSelectionLookupEl.style.top = Math.max(margin, top) + 'px';
 }
 
 function highlightCodeFunction(group) {
@@ -1822,6 +1861,34 @@ function initCodeTooltip() {
   if (codeTipEl || !watchCodeEl) return;
   codeTipEl = document.getElementById('codeTip');
   if (!codeTipEl) return;
+  codeSelectionLookupEl = document.getElementById('codeSelectionLookup');
+  codeSelectionTextEl = document.getElementById('codeSelectionText');
+  const closeSelectionLookup = document.getElementById('codeSelectionClose');
+  const searchSelectionDefinition = document.getElementById('codeSelectionSearch');
+  if (closeSelectionLookup && codeSelectionLookupEl) {
+    closeSelectionLookup.addEventListener('click', () => {
+      codeSelectionLookupEl.hidden = true;
+      codeSelectionQuery = '';
+      const selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+    });
+  }
+  if (searchSelectionDefinition) {
+    searchSelectionDefinition.addEventListener('click', () => {
+      if (codeSelectionQuery && typeof openCodeDictionary === 'function') {
+        openCodeDictionary(true, codeSelectionQuery);
+      }
+    });
+  }
+
+  watchCodeEl.addEventListener('mouseup', () => {
+    window.setTimeout(updateCodeSelectionLookup, 0);
+  });
+  watchCodeEl.addEventListener('keyup', updateCodeSelectionLookup);
+  document.addEventListener('selectionchange', () => {
+    window.clearTimeout(codeSelectionTimer);
+    codeSelectionTimer = window.setTimeout(updateCodeSelectionLookup, 80);
+  });
 
   watchCodeEl.addEventListener('pointerover', (event) => {
     const line = codeLineFromEvent(event);

@@ -2366,6 +2366,52 @@ body.is-resizing {
   background: color-mix(in srgb, var(--code-tip-color, #38bdf8) 28%, #020617);
 }
 
+.code-selection-lookup {
+  position: fixed;
+  z-index: 4001;
+  width: min(300px, calc(100vw - 24px));
+  padding: 9px 10px 10px;
+  border: 1px solid rgba(56, 189, 248, .45);
+  border-left: 4px solid #38bdf8;
+  border-radius: 10px;
+  color: #e2e8f0;
+  background: rgba(2, 6, 23, .98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .5);
+  font: 12px/1.5 "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+.code-selection-lookup[hidden] {
+  display: none;
+}
+
+.code-selection-lookup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.code-selection-lookup-head code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #7dd3fc;
+}
+
+.code-selection-close {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 0;
+  color: #cbd5e1;
+  background: transparent;
+  font: 20px/1 Arial, sans-serif;
+  cursor: pointer;
+}
+
+.code-selection-close:hover,
+.code-selection-close:focus-visible {
+  color: #fff;
+}
+
 .block.is-code-highlight {
   outline: 2px solid #fff;
   outline-offset: 3px;

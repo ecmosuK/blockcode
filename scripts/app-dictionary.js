@@ -2112,7 +2112,7 @@ const CODE_DICTIONARY_GROUPS = [
       {
         term: 'variable',
         kind: 'project concept',
-        definition: 'A named box that can hold a value. You can change what is inside.',
+        definition: 'A named box for information. You can change what is inside and check it whenever you need.',
         example: 'static float var_score = 0.0f;',
         aliases: ['var', 'value', 'program variable']
       },
