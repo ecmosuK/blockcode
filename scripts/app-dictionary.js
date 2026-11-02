@@ -2247,7 +2247,7 @@ const CODE_DICTIONARY_GROUPS = [
         kind: 'reporter',
         definition: 'Answers yes if the two numbers are the same. For example, 3 equals 3.',
         example: '(a == b ? 1.0f : 0.0f)',
-        aliases: ['when', 'when equals', 'equal to', 'comparison', 'when block']
+        aliases: ['equals', 'equal to', 'same as', 'comparison', '=']
       },
       {
         term: 'less than (<)',

@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="44" viewBox="0 0 300 44" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="292" height="44" viewBox="0 0 292 44" fill="none">
   <defs>
-    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H296 Q300 0 300 4 V34 Q300 38 296 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
+    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H288 Q292 0 292 4 V34 Q292 38 288 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
     <clipPath id="tabClip"><path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z"/></clipPath>
   </defs>
-  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H296 Q300 0 300 4 V34 Q300 38 296 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ec4899"/>
-  <rect x="0" y="36" width="300" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
+  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H288 Q292 0 292 4 V34 Q292 38 288 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ec4899"/>
+  <rect x="0" y="36" width="292" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
   <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ec4899"/>
   <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bd3a7a" stroke-width="4" clip-path="url(#tabClip)"/>
   <rect x="184" y="8" width="102" height="22" rx="4" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>

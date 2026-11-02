@@ -52,6 +52,8 @@ function exprToCpp(value) {
           cppString(value.params.item) + ') != ' + list + '.end() ? 1.0f : 0.0f)';
       }
       case 'equals': return '(' + a() + ' == ' + b() + ' ? 1.0f : 0.0f)';
+      case 'less': return '(' + a() + ' < ' + b() + ' ? 1.0f : 0.0f)';
+      case 'greater': return '(' + a() + ' > ' + b() + ' ? 1.0f : 0.0f)';
       case 'and': return '(' + a() + ' != 0.0f && ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
       case 'or': return '(' + a() + ' != 0.0f || ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
       case 'not': return '(' + a() + ' == 0.0f ? 1.0f : 0.0f)';

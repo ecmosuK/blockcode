@@ -196,17 +196,47 @@ window.BLOCK_PACK = {
     },
     {
       type: 'equals',
-      category: 'sensing',
-      label: 'when',
+      category: 'math',
+      label: 'equals',
       sprite: 'assets/blocks/equals.svg',
-      width: 214,
+      width: 178,
       height: 36,
       fields: { a: 0, b: 0 },
       slots: [
-        { field: 'a', type: 'value', x: 54, y: 7, w: 46, h: 22 },
-        { field: 'b', type: 'value', x: 132, y: 7, w: 46, h: 22 }
+        { field: 'a', type: 'value', x: 40, y: 7, w: 42, h: 22 },
+        { field: 'b', type: 'value', x: 120, y: 7, w: 42, h: 22 }
       ],
       action: 'equals',
+      reporter: true
+    },
+    {
+      type: 'less',
+      category: 'math',
+      label: 'less than',
+      sprite: 'assets/blocks/less.svg',
+      width: 178,
+      height: 36,
+      fields: { a: 0, b: 0 },
+      slots: [
+        { field: 'a', type: 'value', x: 40, y: 7, w: 42, h: 22 },
+        { field: 'b', type: 'value', x: 120, y: 7, w: 42, h: 22 }
+      ],
+      action: 'less',
+      reporter: true
+    },
+    {
+      type: 'greater',
+      category: 'math',
+      label: 'greater than',
+      sprite: 'assets/blocks/greater.svg',
+      width: 178,
+      height: 36,
+      fields: { a: 0, b: 0 },
+      slots: [
+        { field: 'a', type: 'value', x: 40, y: 7, w: 42, h: 22 },
+        { field: 'b', type: 'value', x: 120, y: 7, w: 42, h: 22 }
+      ],
+      action: 'greater',
       reporter: true
     },
     {
@@ -526,7 +556,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'move steps',
       sprite: 'assets/blocks/move.svg',
-      width: 190,
+      width: 176,
       height: 44,
       fields: { steps: 50 },
       slots: [
@@ -539,7 +569,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'turn degrees',
       sprite: 'assets/blocks/turn.svg',
-      width: 158,
+      width: 144,
       height: 44,
       fields: { deg: 90 },
       slots: [
@@ -552,7 +582,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'switch sprite to',
       sprite: 'assets/blocks/switchsprite.svg',
-      width: 290,
+      width: 284,
       height: 44,
       fields: { sprite: 'rocket' },
       slots: [
@@ -565,7 +595,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'switch background to',
       sprite: 'assets/blocks/switchbg.svg',
-      width: 300,
+      width: 292,
       height: 44,
       fields: { background: 'mission' },
       slots: [
@@ -578,7 +608,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'show sprite',
       sprite: 'assets/blocks/show.svg',
-      width: 150,
+      width: 124,
       height: 44,
       fields: {},
       slots: [],
@@ -589,7 +619,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'hide sprite',
       sprite: 'assets/blocks/hide.svg',
-      width: 150,
+      width: 124,
       height: 44,
       fields: {},
       slots: [],
@@ -600,7 +630,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'set size',
       sprite: 'assets/blocks/setsize.svg',
-      width: 190,
+      width: 176,
       height: 44,
       fields: { size: 100 },
       slots: [
@@ -613,7 +643,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'go to x y',
       sprite: 'assets/blocks/gotoxy.svg',
-      width: 280,
+      width: 248,
       height: 44,
       fields: { x: 0, y: 0 },
       slots: [
@@ -627,7 +657,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'glide to x y',
       sprite: 'assets/blocks/glide.svg',
-      width: 340,
+      width: 316,
       height: 44,
       fields: { secs: 1, x: 0, y: 0 },
       slots: [
@@ -642,7 +672,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'change x by',
       sprite: 'assets/blocks/changex.svg',
-      width: 230,
+      width: 200,
       height: 44,
       fields: { dx: 20 },
       slots: [
@@ -655,7 +685,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'change y by',
       sprite: 'assets/blocks/changey.svg',
-      width: 230,
+      width: 200,
       height: 44,
       fields: { dy: 20 },
       slots: [
@@ -668,7 +698,7 @@ window.BLOCK_PACK = {
       category: 'visual',
       label: 'point in direction',
       sprite: 'assets/blocks/point.svg',
-      width: 260,
+      width: 244,
       height: 44,
       fields: { deg: 90 },
       slots: [

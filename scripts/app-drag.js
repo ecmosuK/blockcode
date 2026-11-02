@@ -563,11 +563,8 @@ function showExpressionPreview(d, slot) {
   const previewBlock = JSON.parse(JSON.stringify(targetBlock));
   if (d.sourceBlockId && d.sourceField) {
     const sourceBlock = findBlockInTree(previewBlock, d.sourceBlockId);
-    if (sourceBlock) {
-      const sourceDef = DEFS[sourceBlock.type];
-      sourceBlock.params[d.sourceField] =
-        sourceDef && sourceDef.fields ? sourceDef.fields[d.sourceField] : 0;
-    }
+    if (sourceBlock) sourceBlock.params[d.sourceField] =
+      defaultBlockFieldValue(sourceBlock.type, d.sourceField);
   }
   const previewTarget = findBlockInTree(previewBlock, targetBlock.id);
   if (!previewTarget) return;
@@ -676,6 +673,8 @@ function onExpressionMove(event) {
   scriptsEl.querySelectorAll('.expr-slot').forEach((slot) => {
     const targetBlock = findExpressionBlockById(slot.dataset.blockId);
     if (targetBlock && findBlockInTree(expressionDrag.block, targetBlock.id)) return;
+    if (slot.dataset.requiresComparison === 'true' &&
+        !isComparisonReporter(expressionDrag.block)) return;
 
     const rect = slot.getBoundingClientRect();
     const overlapWidth = Math.max(0,
@@ -749,9 +748,8 @@ function onExpressionUp(event) {
     const sourceContainer = containerAtPath(d.fromPath.slice(0, -1));
     if (sourceContainer) sourceContainer.splice(d.fromPath[d.fromPath.length - 1], 1);
   } else if (sourceBlock && d.sourceField) {
-    const def = DEFS[sourceBlock.type];
     sourceBlock.params[d.sourceField] =
-      def && def.fields ? def.fields[d.sourceField] : 0;
+      defaultBlockFieldValue(sourceBlock.type, d.sourceField);
   }
 
   suppressCanvasClickUntil = performance.now() + 250;

@@ -277,6 +277,8 @@ function evalNumber(value, vars) {
         return list.includes(String(value.params.item || '')) ? 1 : 0;
       }
       case 'equals': return a() === b() ? 1 : 0;
+      case 'less': return a() < b() ? 1 : 0;
+      case 'greater': return a() > b() ? 1 : 0;
       case 'and': return a() !== 0 && b() !== 0 ? 1 : 0;
       case 'or': return a() !== 0 || b() !== 0 ? 1 : 0;
       case 'not': return a() === 0 ? 1 : 0;

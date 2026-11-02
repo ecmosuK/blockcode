@@ -126,8 +126,9 @@ function blockSlotContentWidth(block, slot) {
       : block.params[slot.field];
     return Math.max(slot.w, Math.ceil(blockTextWidth(text, '600 12.5px sans-serif') + 16));
   }
+  if (slot.type === 'variable') return slot.w;
   if (slot.type === 'sprite' || slot.type === 'touching' || slot.type === 'background' ||
-      slot.type === 'function' || slot.type === 'variable' || slot.type === 'list') {
+      slot.type === 'function' || slot.type === 'list') {
     let options = selectOptionsFor(slot.type);
     if (slot.type === 'touching') {
       options = [{ value: 'edge', label: 'edge' }].concat(selectOptionsFor('sprite'));
@@ -301,6 +302,9 @@ function renderValueSlot(block, slot, palette) {
   holder.dataset.blockId = block.id;
   holder.dataset.field = slot.field;
   holder.dataset.type = 'value';
+  if (slot.field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(block.type)) {
+    holder.dataset.requiresComparison = 'true';
+  }
   const value = slotValue(block, slot);
   const expression = isExpression(value);
   const expressionSize = expression ? blockRenderSize(value) : null;
@@ -428,6 +432,9 @@ function renderBlock(block, path, opts) {
   opts = opts || {};
   const def = DEFS[block.type];
   if (!def) return null;
+  if (BOOLEAN_CONDITION_BLOCKS.has(block.type) && !isComparisonReporter(block.params.condition)) {
+    block.params.condition = defaultBlockFieldValue(block.type, 'condition');
+  }
 
   const palette = !!opts.palette;
   const size = blockRenderSize(block);

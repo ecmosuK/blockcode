@@ -133,7 +133,7 @@ function makeBlock(type, params) {
 
   const base = {};
   Object.keys(def.fields || {}).forEach((key) => {
-    base[key] = def.fields[key];
+    base[key] = defaultBlockFieldValue(type, key);
   });
 
   const block = {
@@ -145,6 +145,26 @@ function makeBlock(type, params) {
   if (def.cblock) block.children = [];
 
   return block;
+}
+
+const BOOLEAN_CONDITION_BLOCKS = new Set(['if', 'elseif', 'while']);
+const COMPARISON_REPORTER_ACTIONS = new Set([
+  'equals', 'less', 'greater'
+]);
+
+function defaultBlockFieldValue(type, field) {
+  if (field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(type)) {
+    return makeBlock('equals');
+  }
+  const def = DEFS[type];
+  return def && def.fields && def.fields[field] !== undefined
+    ? def.fields[field]
+    : 0;
+}
+
+function isComparisonReporter(block) {
+  const def = block && DEFS[block.type];
+  return !!(def && def.reporter && COMPARISON_REPORTER_ACTIONS.has(def.action));
 }
 
 function isCBlock(block) {
