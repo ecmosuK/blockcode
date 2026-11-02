@@ -864,6 +864,184 @@ function uniqueFunctionDefinitions() {
   return Array.from(byName.values());
 }
 
+const PREVIEW_ACTION_HELPERS = {
+  move: 'watch_move',
+  turn: 'watch_turn',
+  goto: 'watch_goto_start',
+  point: 'watch_point',
+  wait: 'watch_wait',
+  say: 'watch_say',
+  speak: 'watch_speak',
+  tone: 'watch_tone',
+  stopsounds: 'watch_stop_sounds',
+  switchsprite: 'watch_switch_sprite',
+  switchbg: 'watch_switch_background',
+  show: 'watch_show_sprite',
+  hide: 'watch_hide_sprite',
+  setsize: 'watch_set_size',
+  gotoxy: 'watch_goto_xy',
+  glide: 'watch_glide',
+  changex: 'watch_change_x',
+  changey: 'watch_change_y'
+};
+
+const PREVIEW_EXPRESSION_HELPERS = {
+  random: 'watch_random'
+};
+
+let previewHelperCache = null;
+
+function collectCppFunctions(sourceLines, out) {
+  let current = null;
+  let depth = 0;
+
+  (sourceLines || []).forEach((line) => {
+    if (!current) {
+      const name = watchFunctionNameFromLine(line);
+      if (!name || line.indexOf('{') < 0) return;
+      current = { name: name, lines: [] };
+      depth = 0;
+    }
+
+    current.lines.push(line);
+    for (let index = 0; index < line.length; index++) {
+      if (line[index] === '{') depth += 1;
+      else if (line[index] === '}') depth -= 1;
+    }
+
+    if (depth <= 0) {
+      if (!out.has(current.name)) out.set(current.name, current.lines);
+      current = null;
+    }
+  });
+}
+
+function previewHelperFunctions() {
+  if (previewHelperCache) return previewHelperCache;
+
+  const chunks = new Map();
+  const ordered = [];
+  [watchCppActionSupport(), watchCppActionCode()].forEach((source) => {
+    const found = new Map();
+    collectCppFunctions(source, found);
+    found.forEach((lines, name) => {
+      chunks.set(name, lines);
+      ordered.push({ name: name, lines: lines });
+    });
+  });
+
+  previewHelperCache = { chunks: chunks, ordered: ordered };
+  return previewHelperCache;
+}
+
+function previewRunnableProgram() {
+  const functionDefs = uniqueFunctionDefinitions();
+  const functionsByName = new Map();
+  functionDefs.forEach((definition) => {
+    if (!functionsByName.has(definition.name)) functionsByName.set(definition.name, definition);
+  });
+
+  const stacks = [];
+  workspace.forEach((script, index) => {
+    if (!script.length || isDefine(script[0]) || !isHat(script[0])) return;
+    if (script.length <= 1) return;
+    stacks.push({ script: script, index: index });
+  });
+
+  const includedFunctions = new Set();
+  functionDefs.forEach((definition) => {
+    if (definition.script.length > 1) includedFunctions.add(definition.name);
+  });
+
+  const callNames = new Set();
+  const collectCalls = (container) => {
+    walkContainer(container, (block) => {
+      const action = (DEFS[block.type] || {}).action || block.type;
+      if (action !== 'call') return;
+      const name = String(block.params.name || '').trim();
+      if (name) callNames.add(name);
+    });
+  };
+
+  stacks.forEach((stack) => collectCalls(stack.script.slice(1)));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    includedFunctions.forEach((name) => {
+      const definition = functionsByName.get(name);
+      if (definition) collectCalls(definition.script.slice(1));
+    });
+    callNames.forEach((name) => {
+      if (functionsByName.has(name) && !includedFunctions.has(name)) {
+        includedFunctions.add(name);
+        changed = true;
+      }
+    });
+  }
+
+  const functions = functionDefs.filter((definition) => includedFunctions.has(definition.name));
+  const hasProgram = stacks.length > 0 ||
+    functions.some((definition) => definition.script.length > 1);
+
+  return {
+    stacks: stacks,
+    functions: functions,
+    hasProgram: hasProgram
+  };
+}
+
+function collectPreviewExpressionHelpers(value, seeds) {
+  if (!isExpression(value)) return;
+  const helper = PREVIEW_EXPRESSION_HELPERS[value.type];
+  if (helper) seeds.add(helper);
+  Object.keys(value.params || {}).forEach((key) => {
+    collectPreviewExpressionHelpers(value.params[key], seeds);
+  });
+}
+
+function collectPreviewHelperSeeds(containers) {
+  const seeds = new Set();
+  let usesBroadcast = false;
+
+  containers.forEach((container) => {
+    walkContainer(container, (block) => {
+      const action = (DEFS[block.type] || {}).action || block.type;
+      if (action === 'broadcast') usesBroadcast = true;
+      const helper = PREVIEW_ACTION_HELPERS[action];
+      if (helper) seeds.add(helper);
+      Object.keys(block.params || {}).forEach((key) => {
+        collectPreviewExpressionHelpers(block.params[key], seeds);
+      });
+    });
+  });
+
+  return { seeds: seeds, usesBroadcast: usesBroadcast };
+}
+
+function resolvePreviewHelpers(seeds) {
+  const chunks = previewHelperFunctions().chunks;
+  const needed = new Set();
+  const queue = Array.from(seeds);
+
+  while (queue.length) {
+    const name = queue.pop();
+    if (needed.has(name) || !chunks.has(name)) continue;
+    needed.add(name);
+
+    chunks.get(name).forEach((line) => {
+      const pattern = /\b(watch_[A-Za-z0-9_]+)\s*\(/g;
+      let match;
+      while ((match = pattern.exec(line))) {
+        if (match[1] !== name && chunks.has(match[1]) && !needed.has(match[1])) {
+          queue.push(match[1]);
+        }
+      }
+    });
+  }
+
+  return needed;
+}
+
 function generateWatchCpp(spriteAssets, backgroundAssets) {
   const lines = [];
   const add = (line) => lines.push(line === undefined ? '' : line);
@@ -1000,34 +1178,48 @@ function generateWatchCppPreview() {
     lines.push(line === undefined ? '' : line);
     watchCodeLineBlocks.push(block ? block.id : null);
   };
-  const functions = uniqueFunctionDefinitions();
-  const entries = executableScripts();
-  const clickScripts = workspace.filter((script) => script.length > 0 && isClickHat(script[0]));
+  const program = previewRunnableProgram();
+
+  if (!program.hasProgram) {
+    previewCodeLines = null;
+    return '';
+  }
+
+  const containers = program.stacks
+    .map((stack) => stack.script.slice(1))
+    .concat(program.functions.map((definition) => definition.script.slice(1)));
+  const helperInfo = collectPreviewHelperSeeds(containers);
+  const neededHelpers = resolvePreviewHelpers(helperInfo.seeds);
+  const selectedHelpers = previewHelperFunctions().ordered.filter((entry) =>
+    neededHelpers.has(entry.name)
+  );
   const entryNames = [];
+  const signalHandlers = [];
 
   add('// Preview only. Copy or Download adds the full C++ app file.');
   add('');
-
-  if (!entries.length && !clickScripts.length && !functions.length) {
-    add('// No runnable blocks yet');
-    previewCodeLines = null;
-    return lines.join('\n');
+  if (selectedHelpers.length) {
+    add('// Functions used by the blocks under your starter blocks:');
+    selectedHelpers.forEach((entry) => {
+      entry.lines.forEach((line) => add(line));
+      add('');
+    });
   }
 
-  add('// Block action functions:');
-  watchCppActionCode().forEach((line) => add(line));
-  add('static void watch_broadcast(const char *message);');
-  add('');
+  if (helperInfo.usesBroadcast) {
+    add('static void watch_broadcast(const char *message);');
+    add('');
+  }
 
-  if (functions.length) {
+  if (program.functions.length) {
     add('// User function prototypes');
-    functions.forEach((definition) => {
+    program.functions.forEach((definition) => {
       add('static void ' + functionCppName(definition.name) + '(void);');
     });
     add('');
   }
 
-  functions.forEach((definition) => {
+  program.functions.forEach((definition) => {
     const definitionBlock = definition.script[0];
     add('// Function: ' + definition.name, definitionBlock);
     add('static void ' + functionCppName(definition.name) + '(void) {', definitionBlock);
@@ -1036,9 +1228,9 @@ function generateWatchCppPreview() {
     add('');
   });
 
-  const signalHandlers = [];
-  workspace.forEach((script, scriptIndex) => {
-    if (!script.length || isDefine(script[0]) || !isHat(script[0])) return;
+  program.stacks.forEach((stack) => {
+    const script = stack.script;
+    const scriptIndex = stack.index;
     const name = 'stack' + (scriptIndex + 1);
     const clickStack = isClickHat(script[0]);
     const signalHat = (DEFS[script[0].type] || {}).action === 'signal';
@@ -1055,13 +1247,15 @@ function generateWatchCppPreview() {
     add('');
   });
 
-  add('static void watch_broadcast(const char *message) {');
-  add('  if (!message) return;');
-  signalHandlers.forEach((handler) => {
-    add('  if (strcmp(message, ' + cppString(handler.message) + ') == 0) ' + handler.name + '();');
-  });
-  add('}');
-  add('');
+  if (helperInfo.usesBroadcast || signalHandlers.length) {
+    add('static void watch_broadcast(const char *message) {');
+    add('  if (!message) return;');
+    signalHandlers.forEach((handler) => {
+      add('  if (strcmp(message, ' + cppString(handler.message) + ') == 0) ' + handler.name + '();');
+    });
+    add('}');
+    add('');
+  }
 
   add('int main(int argc, char **argv) {');
   if (entryNames.length) {
@@ -1703,12 +1897,16 @@ function renderWatchCpp(focusBlockId) {
     watchCodeEl.appendChild(document.createTextNode('\n'));
   });
 
-  const blockCount = workspace.reduce((total, script) => total + script.length, 0);
+  const program = previewRunnableProgram();
+  const blockCount = program.stacks.reduce((total, stack) => total + stack.script.length, 0) +
+    program.functions.reduce((total, definition) => total + definition.script.length, 0);
   if (codeStatusEl) {
-    codeStatusEl.textContent = blockCount
-      ? blockCount + ' block' + (blockCount === 1 ? '' : 's') +
-        ' | ' + lines.length + ' lines'
-      : 'No blocks yet';
+    if (!program.hasProgram) {
+      codeStatusEl.textContent = workspace.length ? 'Add blocks under a starter' : 'No blocks yet';
+    } else {
+      codeStatusEl.textContent = blockCount + ' block' + (blockCount === 1 ? '' : 's') +
+        ' | ' + lines.length + ' lines';
+    }
   }
 
   try {
