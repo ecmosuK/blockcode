@@ -20,7 +20,7 @@
     "publish": {
       "provider": "github",
       "owner": "ecmosuK",
-      "repo": "quarkband",
+      "repo": "blockcode",
       "releaseType": "release"
     },
     "extraResources": [
