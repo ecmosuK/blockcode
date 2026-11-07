@@ -183,9 +183,10 @@ function readIdfEnvironment(idfPath, toolsPath, pythonEnvPath) {
   const exportScript = path.join(idfPath, 'export.bat');
   if (!fs.existsSync(exportScript)) throw new Error(`ESP-IDF activation script not found: ${exportScript}`);
   const command = `call "${exportScript}" >nul && set`;
-  const child = require('node:child_process').spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
+  const child = require('node:child_process').spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${command}"`], {
     encoding: 'utf8',
     windowsHide: true,
+    windowsVerbatimArguments: true,
     env: {
       ...process.env,
       IDF_TOOLS_PATH: toolsPath,
