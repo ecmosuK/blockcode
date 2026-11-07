@@ -24,5 +24,12 @@ jobs:
           $version = $env:GITHUB_REF_NAME.Substring(1)
           npm version $version --no-git-tag-version
       - run: npm run release
+      - name: Publish GitHub release
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $assets = Get-ChildItem dist -File | ForEach-Object FullName
+          if (-not $assets) { throw "No release assets were produced." }
+          gh release create $env:GITHUB_REF_NAME $assets --title "BlockCode $version" --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
