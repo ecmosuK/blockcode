@@ -149,8 +149,14 @@ function makeBlock(type, params) {
 
 const BOOLEAN_CONDITION_BLOCKS = new Set(['if', 'elseif', 'while']);
 const COMPARISON_REPORTER_ACTIONS = new Set([
-  'equals', 'less', 'greater'
+  'equals', 'less', 'greater', 'not-equal'
 ]);
+const COMPARISON_OPERATORS = new Set(['<', '=', '>']);
+
+function comparisonOperator(value) {
+  const operator = value && value.params && value.params.operator;
+  return COMPARISON_OPERATORS.has(operator) ? operator : '<';
+}
 
 function defaultBlockFieldValue(type, field) {
   if (field === 'condition' && BOOLEAN_CONDITION_BLOCKS.has(type)) {
@@ -303,6 +309,20 @@ function functionDefinitions() {
 
 function functionNames() {
   return functionDefinitions().map((item) => item.name);
+}
+
+function signalNames() {
+  const names = new Set();
+  const containers = Object.keys(workspaceBySprite || {}).map((spriteId) => workspaceBySprite[spriteId]);
+  containers.push(workspace);
+  containers.forEach((container) => {
+    walkContainer(container, (block) => {
+      if ((DEFS[block.type] || {}).action !== 'broadcast') return;
+      const message = String(block.params.message || '').trim();
+      if (message) names.add(message);
+    });
+  });
+  return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
 function findFunctionScript(name) {

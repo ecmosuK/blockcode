@@ -14,6 +14,41 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 Open <http://127.0.0.1:8000/>. On Windows, `py -m http.server 8000` also works.
 
+## Run as a Windows desktop app
+
+Install Node.js, then run these commands from the repository root:
+
+```powershell
+npm install
+npm start
+```
+
+To create a Windows installer, run `npm run dist`. The installer is written to
+`Downloads/BlockCode Setup 1.0.0.exe`; it creates Start menu and desktop shortcuts.
+The installer includes the watch build script and firmware project. The first
+time you build or upload a watch app, BlockCode installs ESP-IDF 6.1 and its
+ESP32-S3 tools under `%USERPROFILE%\Documents\BlockCode`; this download can take
+a while and requires an internet connection and several gigabytes of free space.
+BlockCode starts its local build service automatically, and uploads directly over
+USB without requiring a separate Quantum OS checkout. Override `IDF_PATH`,
+`IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` before launching BlockCode to use an
+existing ESP-IDF installation instead. Build-service startup details are saved
+to `%APPDATA%\BlockCode\logs\build-service.log`.
+
+Use **New**, **Open**, **Save**, and **Save As** in the top toolbar to manage
+`.blockcode` project files. Projects include scripts for every sprite, custom
+sprites and backgrounds, and variables/lists. Keyboard shortcuts are Ctrl+N,
+Ctrl+O, Ctrl+S, and Ctrl+Shift+S.
+On launch, choose **Open a project** to select a saved file or **Make a new
+project** to start with an empty workspace.
+
+The installed desktop app checks the `ecmosuK/quarkband` GitHub Releases for
+updates at startup. Choose **Download update** and then **Restart to update**
+when one is available. To publish an update, push a version tag such as
+`v1.0.1`; the Windows release workflow builds the installer and publishes the
+update metadata. Install the updater-enabled installer once before receiving
+future updates.
+
 ## Publish with GitHub Pages
 
 1. In the repository's **Settings → Pages**, set the source to **GitHub Actions**.

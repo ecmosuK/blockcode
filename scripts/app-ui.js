@@ -28,6 +28,16 @@ function showBuildNotice(title, message, status, loading) {
   buildNoticeEl.hidden = false;
 }
 
+if (window.blockCodeDesktop && window.blockCodeDesktop.onBuildServiceStatus) {
+  window.blockCodeDesktop.onBuildServiceStatus((status) => {
+    if (!status || !status.message) {
+      buildNoticeEl.hidden = true;
+      return;
+    }
+    showBuildNotice('Setting up watch build tools', status.message, 'loading', true);
+  });
+}
+
 buildNoticeCloseEl.addEventListener('click', () => {
   buildNoticeEl.hidden = true;
 });

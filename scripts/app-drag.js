@@ -2,7 +2,8 @@
 
 /* ---------- Dragging ---------- */
 
-let stackPreviewSource = null;
+let stackPreviewSources = [];
+let sourceSnapPreview = null;
 const STACK_SNAP_DISTANCE = 96;
 const STACK_SNAP_LEFT = 120;
 const STACK_SNAP_HYSTERESIS = 12;
@@ -166,75 +167,104 @@ function clearDropHighlight() {
 function clearStackPreview() {
   snapPreview.style.display = 'none';
   snapPreview.replaceChildren();
-  if (stackPreviewSource) stackPreviewSource.classList.remove('is-stack-preview-source');
-  stackPreviewSource = null;
-}
-
-function previewBlockClone(source, incoming) {
-  const clone = source.cloneNode(true);
-  clone.classList.remove('is-dragging', 'is-ghost', 'is-selected', 'is-active');
-  clone.querySelectorAll('.is-dragging, .is-ghost, .is-selected, .is-active').forEach((node) => {
-    node.classList.remove('is-dragging', 'is-ghost', 'is-selected', 'is-active');
-  });
-  clone.querySelectorAll('input, select').forEach((input) => {
-    input.readOnly = true;
-    input.tabIndex = -1;
-  });
-  if (incoming) clone.classList.add('stack-preview-incoming');
-  return clone;
-}
-
-function stackPreviewContainer(parentPath) {
-  if (parentPath.length === 1) {
-    return scriptsEl.querySelector('.script[data-script="' + parentPath[0] + '"]');
+  if (sourceSnapPreview) {
+    sourceSnapPreview.style.display = 'none';
+    sourceSnapPreview.replaceChildren();
   }
-  const parent = wrapperForPath(parentPath);
-  return parent && parent.querySelector('.cblock-children');
+  stackPreviewSources.forEach((source) => source.classList.remove('is-stack-preview-source'));
+  stackPreviewSources = [];
+}
+
+function previewBlockInScript(blocks, id) {
+  for (const block of blocks) {
+    const match = findBlockInTree(block, id);
+    if (match) return match;
+  }
+  return null;
+}
+
+function previewContainerForPath(blocks, path) {
+  if (path.length === 1) return blocks;
+  const parent = blockAtPath(path);
+  const previewParent = parent && previewBlockInScript(blocks, parent.id);
+  return previewParent && Array.isArray(previewParent.children)
+    ? previewParent.children
+    : null;
+}
+
+function cloneScriptBlocks(scriptIndex) {
+  return (workspace[scriptIndex] || []).map((block) => JSON.parse(JSON.stringify(block)));
+}
+
+function removeFromPreviewScript(blocks, parentPath, start, count) {
+  const source = previewContainerForPath(blocks, parentPath);
+  if (source) source.splice(start, count);
+}
+
+function renderStackPreview(preview, scriptIndex, blocks, incomingIds) {
+  const scriptEl = scriptsEl.querySelector('.script[data-script="' + scriptIndex + '"]');
+  if (!scriptEl) return false;
+  const rect = scriptEl.getBoundingClientRect();
+  blocks.forEach((block, index) => {
+    const rendered = renderBlock(block, [scriptIndex, index]);
+    if (!rendered) return;
+    if (incomingIds.has(block.id)) rendered.classList.add('stack-preview-incoming');
+    rendered.querySelectorAll('input, select').forEach((input) => {
+      input.readOnly = true;
+      input.tabIndex = -1;
+    });
+    preview.appendChild(rendered);
+  });
+  preview.style.left = rect.left + 'px';
+  preview.style.top = rect.top + 'px';
+  preview.style.transform = 'scale(' + workspaceZoom + ')';
+  preview.style.display = 'flex';
+  scriptEl.classList.add('is-stack-preview-source');
+  stackPreviewSources.push(scriptEl);
+  return true;
 }
 
 function showStackPreview(target) {
   clearStackPreview();
-  const container = stackPreviewContainer(target.parentPath);
-  if (!container) return;
-
-  const sourceSet = new Set(drag.sourceEls);
-  const existing = Array.prototype.filter.call(container.children, (child) => {
-    return (child.classList.contains('block') || child.classList.contains('cblock')) &&
-      !sourceSet.has(child);
-  });
-  existing.forEach((child) => snapPreview.appendChild(previewBlockClone(child, false)));
-
-  let index = target.index;
-  if (drag.from && drag.parentPath.length === target.parentPath.length &&
-      drag.parentPath.every((part, i) => part === target.parentPath[i]) &&
-      drag.startIndex < index) {
-    index -= drag.groupBlocks ? drag.groupBlocks.length : 1;
+  const targetScriptIndex = target.parentPath[0];
+  const sourceScriptIndex = drag.from ? drag.parentPath[0] : null;
+  const sameScript = sourceScriptIndex === targetScriptIndex;
+  const sameContainer = drag.from &&
+    containerAtPath(drag.parentPath) === target.container;
+  const sourceBlocks = drag.groupBlocks || [drag.block];
+  const sourceCount = sourceBlocks.length;
+  const targetBlocks = cloneScriptBlocks(targetScriptIndex);
+  if (sameScript && drag.from) {
+    removeFromPreviewScript(targetBlocks, drag.parentPath, drag.startIndex, sourceCount);
   }
-  index = clamp(index, 0, existing.length);
-  const incoming = drag.sourceEls.map((source) => previewBlockClone(source, true));
-  incoming.forEach((clone, offset) => {
-    snapPreview.insertBefore(clone, snapPreview.children[index + offset] || null);
-  });
+
+  const targetContainer = previewContainerForPath(targetBlocks, target.parentPath);
+  if (!targetContainer) return;
+  let index = target.index;
+  if (sameContainer && drag.startIndex < target.index) index -= sourceCount;
+  index = clamp(index, 0, targetContainer.length);
+  const incoming = sourceBlocks.map((block) => JSON.parse(JSON.stringify(block)));
+  targetContainer.splice(index, 0, ...incoming);
 
   if (isCBlock(drag.block)) {
-    const loopPreview = snapPreview.children[index];
-    const children = loopPreview && loopPreview.querySelector('.cblock-children');
-    if (children) {
-      const empty = children.querySelector('.cblock-empty');
-      if (empty) empty.remove();
-      Array.prototype.slice.call(snapPreview.children, index + 1).forEach((child) => {
-        children.appendChild(child);
-      });
-    }
+    const following = targetContainer.splice(index + incoming.length);
+    incoming[0].children = (incoming[0].children || []).concat(following);
   }
 
-  const rect = container.getBoundingClientRect();
-  snapPreview.style.left = rect.left + 'px';
-  snapPreview.style.top = rect.top + 'px';
-  snapPreview.style.transform = 'scale(' + workspaceZoom + ')';
-  container.classList.add('is-stack-preview-source');
-  stackPreviewSource = container;
-  snapPreview.style.display = 'flex';
+  const incomingIds = new Set(incoming.map((block) => block.id));
+  if (!renderStackPreview(snapPreview, targetScriptIndex, targetBlocks, incomingIds)) return;
+
+  if (drag.from && !sameScript) {
+    if (!sourceSnapPreview) {
+      sourceSnapPreview = document.createElement('div');
+      sourceSnapPreview.className = 'snap-preview';
+      sourceSnapPreview.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(sourceSnapPreview);
+    }
+    const sourceBlocksPreview = cloneScriptBlocks(sourceScriptIndex);
+    removeFromPreviewScript(sourceBlocksPreview, drag.parentPath, drag.startIndex, sourceCount);
+    renderStackPreview(sourceSnapPreview, sourceScriptIndex, sourceBlocksPreview, new Set());
+  }
 }
 
 function targetInsideSource(d, parentPath) {
@@ -566,11 +596,50 @@ function findBlockInTree(block, id) {
 }
 
 function clearExpressionPreview(d) {
-  if (d.preview) d.preview.remove();
-  if (d.previewSource) d.previewSource.classList.remove('is-expression-preview-source');
+  if (Array.isArray(d.preview)) d.preview.forEach((preview) => preview.remove());
+  else if (d.preview) d.preview.remove();
+  (d.previewSources || []).forEach((source) => source.classList.remove('is-stack-preview-source'));
   d.preview = null;
-  d.previewSource = null;
+  d.previewSources = [];
   d.previewSlot = null;
+}
+
+function scriptIndexForBlockId(id) {
+  const elements = scriptsEl.querySelectorAll('.block[data-id]');
+  for (const element of elements) {
+    if (element.dataset.id !== id) continue;
+    const script = element.closest('.script');
+    return script ? Number(script.dataset.script) : null;
+  }
+  return null;
+}
+
+function renderExpressionScriptPreview(scriptIndex, blocks, incomingId) {
+  const scriptEl = scriptsEl.querySelector('.script[data-script="' + scriptIndex + '"]');
+  if (!scriptEl) return null;
+  const rect = scriptEl.getBoundingClientRect();
+  const preview = document.createElement('div');
+  preview.className = 'expression-script-preview';
+  blocks.forEach((block, index) => {
+    const rendered = renderBlock(block, [scriptIndex, index]);
+    if (!rendered) return;
+    if (incomingId) {
+      rendered.querySelectorAll('.block[data-id]').forEach((element) => {
+        if (element.dataset.id === incomingId) element.classList.add('stack-preview-incoming');
+      });
+    }
+    rendered.querySelectorAll('input, select').forEach((input) => {
+      input.readOnly = true;
+      input.tabIndex = -1;
+    });
+    preview.appendChild(rendered);
+  });
+  preview.style.left = rect.left + 'px';
+  preview.style.top = rect.top + 'px';
+  preview.style.transform = 'scale(' + workspaceZoom + ')';
+  document.body.appendChild(preview);
+  scriptEl.classList.add('is-stack-preview-source');
+  return { preview: preview, source: scriptEl };
 }
 
 function showExpressionPreview(d, slot) {
@@ -578,39 +647,60 @@ function showExpressionPreview(d, slot) {
   clearExpressionPreview(d);
   if (!slot) return;
 
-  const targetBlock = findExpressionBlockById(slot.dataset.blockId);
-  if (!targetBlock) return;
+  const target = findExpressionBlockById(slot.dataset.blockId);
+  const targetScriptIndex = target && scriptIndexForBlockId(target.id);
+  if (!target || targetScriptIndex === null) return;
+  const targetBlocks = cloneScriptBlocks(targetScriptIndex);
 
-  const previewBlock = JSON.parse(JSON.stringify(targetBlock));
-  if (d.sourceBlockId && d.sourceField) {
-    const sourceBlock = findBlockInTree(previewBlock, d.sourceBlockId);
-    if (sourceBlock) sourceBlock.params[d.sourceField] =
-      defaultBlockFieldValue(sourceBlock.type, d.sourceField);
+  if (d.fromPath && d.fromPath[0] === targetScriptIndex) {
+    const sourcePath = d.fromPath;
+    removeFromPreviewScript(
+      targetBlocks,
+      sourcePath.slice(0, -1),
+      sourcePath[sourcePath.length - 1],
+      1
+    );
+  } else if (d.sourceBlockId && d.sourceField &&
+      scriptIndexForBlockId(d.sourceBlockId) === targetScriptIndex) {
+    const source = previewBlockInScript(targetBlocks, d.sourceBlockId);
+    if (source) source.params[d.sourceField] =
+      defaultBlockFieldValue(source.type, d.sourceField);
   }
-  const previewTarget = findBlockInTree(previewBlock, targetBlock.id);
-  if (!previewTarget) return;
-  previewTarget.params[slot.dataset.field] = JSON.parse(JSON.stringify(d.block));
 
-  const rendered = renderBlock(previewBlock, null);
-  if (!rendered) return;
+  const targetPreview = previewBlockInScript(targetBlocks, target.id);
+  if (!targetPreview) return;
+  targetPreview.params[slot.dataset.field] = JSON.parse(JSON.stringify(d.block));
 
-  const sourceEl = Array.prototype.find.call(
-    scriptsEl.querySelectorAll('.block[data-id]'),
-    (el) => el.dataset.id === targetBlock.id
-  );
-  if (!sourceEl) return;
+  const previews = [];
+  const targetPreviewResult = renderExpressionScriptPreview(targetScriptIndex, targetBlocks, d.block.id);
+  if (!targetPreviewResult) return;
+  previews.push(targetPreviewResult);
 
-  const root = sourceEl.classList.contains('cblock-head')
-    ? sourceEl.closest('.cblock') || sourceEl
-    : sourceEl;
-  const rect = root.getBoundingClientRect();
-  rendered.classList.add('expression-preview');
-  rendered.style.left = rect.left + 'px';
-  rendered.style.top = rect.top + 'px';
-  document.body.appendChild(rendered);
-  root.classList.add('is-expression-preview-source');
-  d.preview = rendered;
-  d.previewSource = root;
+  const sourceScriptIndex = d.sourceBlockId
+    ? scriptIndexForBlockId(d.sourceBlockId)
+    : null;
+  if (d.fromPath && d.fromPath[0] !== targetScriptIndex) {
+    const sourceBlocks = cloneScriptBlocks(d.fromPath[0]);
+    removeFromPreviewScript(
+      sourceBlocks,
+      d.fromPath.slice(0, -1),
+      d.fromPath[d.fromPath.length - 1],
+      1
+    );
+    const sourcePreviewResult = renderExpressionScriptPreview(d.fromPath[0], sourceBlocks);
+    if (sourcePreviewResult) previews.push(sourcePreviewResult);
+  } else if (d.sourceBlockId && d.sourceField && sourceScriptIndex !== targetScriptIndex) {
+    const sourceBlocks = cloneScriptBlocks(sourceScriptIndex);
+    const source = previewBlockInScript(sourceBlocks, d.sourceBlockId);
+    if (source) {
+      source.params[d.sourceField] = defaultBlockFieldValue(source.type, d.sourceField);
+      const sourcePreviewResult = renderExpressionScriptPreview(sourceScriptIndex, sourceBlocks);
+      if (sourcePreviewResult) previews.push(sourcePreviewResult);
+    }
+  }
+
+  d.preview = previews.map((item) => item.preview);
+  d.previewSources = previews.map((item) => item.source);
   d.previewSlot = slot;
 }
 
@@ -656,7 +746,6 @@ function startExpressionDrag(event, block, sourceEl, sourceSlot, from) {
     fromPath: from ? from.path : null,
     groupRect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
     preview: null,
-    previewSource: null,
     previewSlot: null
   };
 

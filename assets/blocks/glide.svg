@@ -1,19 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="316" height="44" viewBox="0 0 316 44" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" width="270" height="44" viewBox="0 0 270 44" fill="none">
   <defs>
-    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H312 Q316 0 316 4 V34 Q316 38 312 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
+    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H266 Q270 0 270 4 V34 Q270 38 266 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
     <clipPath id="tabClip"><path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z"/></clipPath>
   </defs>
-  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H312 Q316 0 316 4 V34 Q316 38 312 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ec4899"/>
-  <rect x="0" y="36" width="316" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
+  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H266 Q270 0 270 4 V34 Q270 38 266 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ec4899"/>
+  <rect x="0" y="36" width="270" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
   <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ec4899"/>
   <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bd3a7a" stroke-width="4" clip-path="url(#tabClip)"/>
-  <circle cx="99" cy="19" r="15" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
-  <circle cx="204" cy="19" r="15" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
-  <circle cx="280" cy="19" r="15" fill="#ffffff" fill-opacity=".94" stroke="#000000" stroke-opacity=".12"/>
   <g transform="translate(16 11.5) scale(.625)">
     <path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4" fill="none" stroke="#500724" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <text x="40" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">glide</text>
-  <text x="149" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">s to x</text>
-  <text x="242" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">y</text>
+  <text x="138.5" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">s to x</text>
+  <text x="205.5" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600" text-anchor="middle">y</text>
 </svg>

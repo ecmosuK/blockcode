@@ -27,6 +27,12 @@ function formatFloat(value) {
   return (Number.isInteger(rounded) ? rounded.toFixed(1) : String(rounded)) + 'f';
 }
 
+function compareSensorToCpp(value, actual) {
+  const selectedOperator = comparisonOperator(value);
+  const operator = selectedOperator === '=' ? '==' : selectedOperator;
+  return '(' + actual + ' ' + operator + ' ' + exprToCpp(value.params.value) + ' ? 1.0f : 0.0f)';
+}
+
 function exprToCpp(value) {
   if (isExpression(value)) {
     const a = () => exprToCpp(value.params.a);
@@ -51,17 +57,19 @@ function exprToCpp(value) {
         return '(std::find(' + list + '.begin(), ' + list + '.end(), ' +
           cppString(value.params.item) + ') != ' + list + '.end() ? 1.0f : 0.0f)';
       }
-      case 'xposition': return '(watch_x - 205.0f)';
-      case 'yposition': return '(251.0f - watch_y)';
-      case 'direction': return 'watch_heading';
-      case 'sensesize': return 'watch_size';
-      case 'distance': return 'watch_distance_to(' + cppString(value.params.sprite) + ')';
+      case 'xposition': return compareSensorToCpp(value, '(watch_x - 205.0f)');
+      case 'yposition': return compareSensorToCpp(value, '(251.0f - watch_y)');
+      case 'direction': return compareSensorToCpp(value, 'watch_heading');
+      case 'sensesize':
+        return compareSensorToCpp(value, 'watch_size_for_sprite(' + cppString(value.params.sprite) + ')');
+      case 'distance':
+        return compareSensorToCpp(value, 'watch_distance_to(' + cppString(value.params.sprite) + ')');
       case 'equals': return '(' + a() + ' == ' + b() + ' ? 1.0f : 0.0f)';
+      case 'not-equal': return '(' + a() + ' != ' + b() + ' ? 1.0f : 0.0f)';
       case 'less': return '(' + a() + ' < ' + b() + ' ? 1.0f : 0.0f)';
       case 'greater': return '(' + a() + ' > ' + b() + ' ? 1.0f : 0.0f)';
       case 'and': return '(' + a() + ' != 0.0f && ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
       case 'or': return '(' + a() + ' != 0.0f || ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
-      case 'not': return '(' + a() + ' == 0.0f ? 1.0f : 0.0f)';
       case 'touching': return '(watch_touching(' + cppString(value.params.sprite) + ') ? 1.0f : 0.0f)';
       default: return '0.0f';
     }
@@ -268,6 +276,14 @@ function emitCppBlock(block, indent, lines) {
 
     case 'hide':
       cppPush(lines, indent, 'watch_hide_sprite();');
+      break;
+
+    case 'createclone':
+      cppPush(lines, indent, 'watch_create_clone();');
+      break;
+
+    case 'deleteclones':
+      cppPush(lines, indent, 'watch_delete_clones();');
       break;
 
     case 'setsize':
@@ -685,6 +701,9 @@ function watchCppActionSupport(defaultSpriteId, defaultBackgroundId) {
     'static int watch_visible = 1;',
     'static const char *watch_sprite = ' + cppString(defaultSpriteId || 'rocket') + ';',
     'static const char *watch_background = ' + cppString(defaultBackgroundId || 'mission') + ';',
+    'struct WatchClone { const char *parent_id; const char *sprite_id; float x; float y; float heading; float size; int visible; };',
+    'static WatchClone watch_clones[32];',
+    'static unsigned watch_clone_count = 0;',
     '',
     'static float watch_clamp(float value, float low, float high) {',
     '  if (value < low) return low;',
@@ -724,6 +743,34 @@ function watchCppActionCode() {
     '  const WatchSpriteAsset *asset = watch_find_sprite(watch_sprite);',
     '  qos_app_draw_image(watch_x, watch_y, watch_heading, watch_size, watch_visible, watch_sprite, watch_background,',
     '               asset ? asset->pixels : 0, asset ? asset->width : 0, asset ? asset->height : 0);',
+    '  for (unsigned i = 0; i < watch_clone_count; ++i) {',
+    '    const WatchSpriteAsset *clone_asset = watch_find_sprite(watch_clones[i].sprite_id);',
+    '    qos_app_draw_image(watch_clones[i].x, watch_clones[i].y, watch_clones[i].heading, watch_clones[i].size, watch_clones[i].visible,',
+    '                 watch_clones[i].sprite_id, watch_background, clone_asset ? clone_asset->pixels : 0,',
+    '                 clone_asset ? clone_asset->width : 0, clone_asset ? clone_asset->height : 0);',
+    '  }',
+    '}',
+    '',
+    'void watch_create_clone(void) {',
+    '  if (watch_clone_count >= sizeof(watch_clones) / sizeof(watch_clones[0])) return;',
+    '  WatchClone *clone = &watch_clones[watch_clone_count++];',
+    '  clone->parent_id = watch_sprite;',
+    '  clone->sprite_id = watch_sprite;',
+    '  clone->x = watch_x;',
+    '  clone->y = watch_y;',
+    '  clone->heading = watch_heading;',
+    '  clone->size = watch_size;',
+    '  clone->visible = watch_visible;',
+    '  watch_render();',
+    '}',
+    '',
+    'void watch_delete_clones(void) {',
+    '  unsigned kept = 0;',
+    '  for (unsigned i = 0; i < watch_clone_count; ++i) {',
+    '    if (strcmp(watch_clones[i].parent_id, watch_sprite) != 0) watch_clones[kept++] = watch_clones[i];',
+    '  }',
+    '  watch_clone_count = kept;',
+    '  watch_render();',
     '}',
     '',
     'void watch_goto_start(void) {',
@@ -731,6 +778,7 @@ function watchCppActionCode() {
     '  watch_y = 251.0f;',
     '  watch_heading = 0.0f;',
     '  watch_size = 100.0f;',
+    '  watch_store_current_size();',
     '  watch_visible = 1;',
     '  watch_render();',
     '  watch_sleep_ms(360);',
@@ -796,7 +844,9 @@ function watchCppActionCode() {
     '}',
     '',
     'void watch_switch_sprite(const char *name) {',
+    '  watch_store_current_size();',
     '  watch_sprite = name;',
+    '  watch_restore_sprite_size(name);',
     '  watch_render();',
     '}',
     '',
@@ -825,6 +875,7 @@ function watchCppActionCode() {
     '',
     'void watch_set_size(float percent) {',
     '  watch_size = watch_clamp(percent, 10.0f, 400.0f);',
+    '  watch_store_current_size();',
     '  watch_render();',
     '}',
     '',
@@ -1086,6 +1137,25 @@ function generateWatchCpp(spriteAssets, backgroundAssets) {
   const defaultSprite = typeof activeSprite === 'function' ? activeSprite() : null;
   const defaultBackground = typeof activeBackground === 'function' ? activeBackground() : null;
   watchCppActionSupport(defaultSprite && defaultSprite.id, defaultBackground && defaultBackground.id).forEach((line) => add(line));
+  const sizeSprites = allSprites();
+  add('static const char *watch_size_sprite_ids[] = {' +
+    sizeSprites.map((sprite) => cppString(sprite.id)).concat(['""']).join(', ') + '};');
+  add('static float watch_size_sprite_values[] = {' +
+    sizeSprites.map(() => '100.0f').concat(['100.0f']).join(', ') + '};');
+  add('static float watch_size_for_sprite(const char *id) {');
+  add('  if (!id) return 100.0f;');
+  add('  if (strcmp(id, watch_sprite) == 0) return watch_size;');
+  add('  for (unsigned i = 0; watch_size_sprite_ids[i][0]; ++i)');
+  add('    if (strcmp(id, watch_size_sprite_ids[i]) == 0) return watch_size_sprite_values[i];');
+  add('  return 100.0f;');
+  add('}');
+  add('static void watch_store_current_size(void) {');
+  add('  for (unsigned i = 0; watch_size_sprite_ids[i][0]; ++i)');
+  add('    if (strcmp(watch_sprite, watch_size_sprite_ids[i]) == 0) watch_size_sprite_values[i] = watch_size;');
+  add('}');
+  add('static void watch_restore_sprite_size(const char *id) {');
+  add('  watch_size = watch_size_for_sprite(id);');
+  add('}');
   add('static bool watch_touching(const char *target) {');
   add('  if (!target) return false;');
   add('  const float radius = 32.0f * (watch_size + 100.0f) / 100.0f;');
@@ -1101,6 +1171,10 @@ function generateWatchCpp(spriteAssets, backgroundAssets) {
   add('}');
   add('static float watch_distance_to(const char *target) {');
   add('  if (!target || strcmp(target, watch_sprite) == 0) return 0.0f;');
+  add('  if (strcmp(target, "edge:top") == 0) return fabsf(watch_y - 40.0f);');
+  add('  if (strcmp(target, "edge:bottom") == 0) return fabsf(462.0f - watch_y);');
+  add('  if (strcmp(target, "edge:left") == 0) return fabsf(watch_x - 40.0f);');
+  add('  if (strcmp(target, "edge:right") == 0) return fabsf(370.0f - watch_x);');
   allSprites().forEach((sprite) => {
     const position = spritePreviewPositions[sprite.id] || defaultSpritePreviewPosition(sprite.id);
     const x = formatFloat(position.x * 4.1);
@@ -1472,19 +1546,19 @@ function explainCodeBlock(block) {
       text = 'Checks if the sprite is touching an edge or another sprite.';
       break;
     case 'xposition':
-      text = 'Gives the sprite’s left-or-right position. The middle is 0.';
+      text = 'Checks whether the sprite’s left-or-right position is ' + param('operator', '<') + ' ' + param('value', '0') + '. The middle is 0.';
       break;
     case 'yposition':
-      text = 'Gives the sprite’s up-or-down position. The middle is 0.';
+      text = 'Checks whether the sprite’s up-or-down position is ' + param('operator', '<') + ' ' + param('value', '0') + '. The middle is 0.';
       break;
     case 'direction':
-      text = 'Gives the direction the sprite is facing, in degrees.';
+      text = 'Checks whether the direction is ' + param('operator', '<') + ' ' + param('value', '0') + ' degrees.';
       break;
     case 'sensesize':
-      text = 'Gives the sprite’s size as a percent of its usual size.';
+      text = 'Checks whether the sprite’s size is ' + param('operator', '>') + ' ' + param('value', '100') + ' percent.';
       break;
     case 'distance':
-      text = 'Gives the distance from this sprite to "' + param('sprite', 'sprite') + '".';
+      text = 'Checks whether the distance to "' + param('sprite', 'sprite') + '" is ' + param('operator', '<') + ' ' + param('value', '0') + '.';
       break;
     default:
       text = 'Runs the "' + label + '" block.';
@@ -2204,8 +2278,11 @@ async function uploadWatchPackage(port, appBlob, appId) {
   }
 }
 
-async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload) {
+async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload, serialPort) {
   const renderBuildApi = window.BLOCKCODE_RENDER_BUILD_API === true;
+  if (!renderBuildApi && window.blockCodeDesktop) {
+    await window.blockCodeDesktop.ensureBuildService();
+  }
 
   const serviceOrigin = 'http://127.0.0.1:8765';
   const isBuildServicePage = location.protocol === 'http:' &&
@@ -2217,7 +2294,8 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
   const body = JSON.stringify({
     source: generateWatchCpp(spriteAssets, backgroundAssets),
     id: id,
-    name: name
+    name: name,
+    ...(upload ? { port: serialPort } : {})
   });
   const headers = { 'Content-Type': 'application/json' };
   let requestBody = body;
@@ -2307,6 +2385,136 @@ async function requestWatchApp(name, id, spriteAssets, backgroundAssets, upload)
   return response.blob();
 }
 
+async function chooseWatchSerialPort() {
+  if (window.blockCodeDesktop) {
+    await window.blockCodeDesktop.ensureBuildService();
+  }
+  const response = await fetch('http://127.0.0.1:8765/ports', { cache: 'no-store' });
+  let result;
+  try {
+    result = await response.json();
+  } catch (error) {
+    throw new Error('The watch service returned an invalid serial-port list.');
+  }
+  if (!response.ok) throw new Error(result.error || 'Could not list connected watches.');
+  if (!Array.isArray(result.ports) || result.ports.length === 0) {
+    throw new Error('No serial devices found. Connect and turn on your watch, then try again.');
+  }
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'watch-port-dialog';
+  const form = document.createElement('form');
+  form.className = 'watch-port-form';
+  const title = document.createElement('h2');
+  title.textContent = 'Choose a watch';
+  const description = document.createElement('p');
+  description.textContent = 'Select the USB serial port for the watch to receive this app.';
+  const label = document.createElement('label');
+  label.className = 'asset-field';
+  const caption = document.createElement('span');
+  caption.textContent = 'Connected devices';
+  const select = document.createElement('select');
+  select.required = true;
+  result.ports.forEach((port) => {
+    if (!port || typeof port.device !== 'string') return;
+    const option = document.createElement('option');
+    option.value = port.device;
+    option.textContent = port.device + ' — ' + (port.description || 'Serial device');
+    select.appendChild(option);
+  });
+  if (!select.options.length) throw new Error('No selectable serial ports were returned.');
+  label.append(caption, select);
+  const actions = document.createElement('div');
+  actions.className = 'watch-port-actions';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = 'Cancel';
+  const choose = document.createElement('button');
+  choose.type = 'submit';
+  choose.className = 'btn';
+  choose.textContent = 'Choose watch';
+  actions.append(cancel, choose);
+  form.append(title, description, label, actions);
+  dialog.appendChild(form);
+  document.body.appendChild(dialog);
+
+  return new Promise((resolve) => {
+    let chosenPort = null;
+    const cleanup = () => {
+      dialog.remove();
+    };
+    dialog.addEventListener('close', () => {
+      cleanup();
+      resolve(chosenPort);
+    }, { once: true });
+    cancel.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      chosenPort = select.value;
+      dialog.close();
+    });
+    dialog.showModal();
+  });
+}
+
+function chooseWatchAppName() {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'watch-app-name-dialog';
+  const form = document.createElement('form');
+  const title = document.createElement('h2');
+  title.textContent = 'Name your watch app';
+  const description = document.createElement('p');
+  description.textContent = 'Choose a name for the app you are building.';
+  const label = document.createElement('label');
+  label.className = 'asset-field';
+  const caption = document.createElement('span');
+  caption.textContent = 'App name';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = 'BlockCode App';
+  input.required = true;
+  const actions = document.createElement('div');
+  actions.className = 'watch-port-actions';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = 'Cancel';
+  const confirm = document.createElement('button');
+  confirm.type = 'submit';
+  confirm.className = 'btn';
+  confirm.textContent = 'Continue';
+  label.append(caption, input);
+  actions.append(cancel, confirm);
+  form.append(title, description, label, actions);
+  dialog.appendChild(form);
+  document.body.appendChild(dialog);
+
+  return new Promise((resolve) => {
+    let appName = null;
+    dialog.addEventListener('close', () => {
+      dialog.remove();
+      resolve(appName);
+    }, { once: true });
+    cancel.addEventListener('click', () => dialog.close());
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      appName = input.value.trim();
+      if (!appName) {
+        input.setCustomValidity('Enter an app name.');
+        input.reportValidity();
+        return;
+      }
+      dialog.close();
+    });
+    input.addEventListener('input', () => input.setCustomValidity(''));
+    dialog.showModal();
+  });
+}
+
 function showBuildError(error) {
   const unavailable = /failed to fetch|networkerror|could not connect to the build service/i.test(error.message || '');
   showBuildNotice('Build failed', unavailable
@@ -2320,7 +2528,7 @@ async function buildWatchApp() {
     return;
   }
 
-  const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
+  const name = await chooseWatchAppName();
   if (!name) return;
   const id = appIdFromName(name);
   const originalText = buildAppBtn.textContent;
@@ -2364,8 +2572,16 @@ async function uploadWatchApp() {
       showBuildError(error);
       return;
     }
+  } else {
+    try {
+      port = await chooseWatchSerialPort();
+    } catch (error) {
+      showBuildError(error);
+      return;
+    }
+    if (!port) return;
   }
-  const name = (window.prompt('Name for this watch app:', 'BlockCode App') || '').trim();
+  const name = await chooseWatchAppName();
   if (!name) return;
   const id = appIdFromName(name);
   const originalText = uploadBtn.textContent;
@@ -2382,7 +2598,7 @@ async function uploadWatchApp() {
       await uploadWatchPackage(port, appBlob, id);
       showBuildNotice('Upload complete', 'Uploaded ' + id + '.app and its sprites to the watch.', 'success', false);
     } else {
-      const result = await requestWatchApp(name, id, assets[0], assets[1], true);
+      const result = await requestWatchApp(name, id, assets[0], assets[1], true, port);
       showBuildNotice('Upload complete', result || ('Uploaded ' + id + '.app and its sprites to the watch.'), 'success', false);
     }
   } catch (error) {

@@ -15,16 +15,16 @@ Leave that PowerShell window open while using the page, then open
 `http://127.0.0.1:8765/` in the browser. The service serves the web UI as well as
 the build API so it can rasterize and embed the selected/built-in/custom sprites.
 **Build watch .app** downloads the built package. **Upload to Watch** builds it and sends it over the watch's USB-Serial-JTAG
-connection into `/sdcard/apps`; connect and power on the watch first. The local
-service uses `tools/push-app.py` from the Quantum OS project, which it expects at
-`~/Downloads/quantum-os/quantum-os` by default. Set `QUANTUM_OS_DIR` before
-starting the service if the project is elsewhere. The service is bound only to
+connection into `/sdcard/apps`; connect and power on the watch first, then
+choose its USB serial port from the upload dialog. The local service transfers
+the app directly over the watch's USB upload protocol and does not require a
+separate Quantum OS checkout. The service is bound only to
 `127.0.0.1:8765`; it accepts requests from local files, localhost pages, and the
 configured hosted website origin. When using the hosted site, keep this service
 running and allow the browser to access local network devices if prompted. If a
-browser blocks that connection, open the local URL above instead. Uploads use
-the local Python uploader rather than the browser's Web Serial API, so they do
-not depend on a browser-specific COM-port picker. The first build may download
+browser blocks that connection, open the local URL above instead. The local
+Python uploader lists connected serial ports and sends the app to the selected
+port. The first build may download
 the Espressif ELF loader component and take several minutes; later builds reuse
 a local build cache.
 

@@ -6,6 +6,8 @@ let activeRuntimeContext = null;
 let draggedStageSprite = null;
 let suppressSpriteClickUntil = 0;
 const runtimeSpriteStates = Object.create(null);
+let runtimeCloneId = 0;
+const runtimeClones = [];
 
 function stageSize() {
   // Match the coordinate space used by generated watch apps.
@@ -24,6 +26,26 @@ function updateSprite() {
     'translate(-50%, -50%) rotate(' + state.heading + 'deg) scale(' + scale + ')';
   posEl.textContent =
     'x ' + Math.round(state.x - size.w / 2) + ' | y ' + Math.round(size.h / 2 - state.y);
+}
+
+function renderRuntimeClones() {
+  if (!stageEl) return;
+  stageEl.querySelectorAll('.stage-clone').forEach((element) => element.remove());
+  const size = stageSize();
+  runtimeClones.forEach((clone) => {
+    const image = document.createElement('img');
+    image.className = 'stage-clone';
+    image.dataset.cloneId = clone.id;
+    image.dataset.cloneOf = clone.parentSpriteId;
+    image.alt = 'Clone of ' + clone.parentName;
+    image.src = clone.src;
+    image.style.left = (clone.x / size.w * 100) + '%';
+    image.style.top = (clone.y / size.h * 100) + '%';
+    image.style.display = clone.visible ? '' : 'none';
+    image.style.transform = 'translate(-50%, -50%) rotate(' + clone.heading +
+      'deg) scale(' + clamp(clone.size, 10, 400) / 100 + ')';
+    stageEl.appendChild(image);
+  });
 }
 
 function initSpriteDragging() {
@@ -51,6 +73,9 @@ function initSpriteDragging() {
       moved: false,
       isActive: !extra
     };
+    if (typeof bringSpritePreviewToFront === 'function') {
+      bringSpritePreviewToFront(spriteId);
+    }
     target.setPointerCapture(event.pointerId);
   });
 
@@ -276,25 +301,44 @@ function evalNumber(value, vars) {
         const list = vars.__lists[value.params.list] || [];
         return list.includes(String(value.params.item || '')) ? 1 : 0;
       }
-      case 'xposition': return state.x - stageSize().w / 2;
-      case 'yposition': return stageSize().h / 2 - state.y;
-      case 'direction': return ((state.heading % 360) + 360) % 360;
-      case 'sensesize': return state.size;
+      case 'xposition':
+        return compareSensorValue(state.x - stageSize().w / 2, evalNumber(value.params.value, vars), comparisonOperator(value)) ? 1 : 0;
+      case 'yposition':
+        return compareSensorValue(stageSize().h / 2 - state.y, evalNumber(value.params.value, vars), comparisonOperator(value)) ? 1 : 0;
+      case 'direction':
+        return compareSensorValue(((state.heading % 360) + 360) % 360, evalNumber(value.params.value, vars), comparisonOperator(value)) ? 1 : 0;
+      case 'sensesize':
+        const targetSprite = String(value.params.sprite || '');
+        const targetSize = targetSprite === state.spriteId
+          ? state.size
+          : (runtimeSpriteStates[targetSprite] ? runtimeSpriteStates[targetSprite].size : 100);
+        return compareSensorValue(targetSize, evalNumber(value.params.value, vars), comparisonOperator(value)) ? 1 : 0;
       case 'distance': {
         const target = String(value.params.sprite || '');
-        if (!target || target === state.spriteId) return 0;
-        const position = spritePreviewPositions[target] || defaultSpritePreviewPosition(target);
-        const size = stageSize();
-        const otherX = size.w * position.x / 100;
-        const otherY = size.h * position.y / 100;
-        return Math.hypot(state.x - otherX, state.y - otherY);
+        let distance = 0;
+        if (target.indexOf('edge:') === 0) {
+          const distances = {
+            top: state.y - 40,
+            bottom: 462 - state.y,
+            left: state.x - 40,
+            right: 370 - state.x
+          };
+          distance = Math.abs(distances[target.slice(5)]);
+        } else if (target && target !== state.spriteId) {
+          const position = spritePreviewPositions[target] || defaultSpritePreviewPosition(target);
+          const size = stageSize();
+          const otherX = size.w * position.x / 100;
+          const otherY = size.h * position.y / 100;
+          distance = Math.hypot(state.x - otherX, state.y - otherY);
+        }
+        return compareSensorValue(distance, evalNumber(value.params.value, vars), comparisonOperator(value)) ? 1 : 0;
       }
       case 'equals': return a() === b() ? 1 : 0;
+      case 'not-equal': return a() !== b() ? 1 : 0;
       case 'less': return a() < b() ? 1 : 0;
       case 'greater': return a() > b() ? 1 : 0;
       case 'and': return a() !== 0 && b() !== 0 ? 1 : 0;
       case 'or': return a() !== 0 || b() !== 0 ? 1 : 0;
-      case 'not': return a() === 0 ? 1 : 0;
       case 'touching': {
         const target = String(value.params.sprite || '');
         const size = stageSize();
@@ -317,6 +361,14 @@ function evalNumber(value, vars) {
 
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function compareSensorValue(actual, expected, operator) {
+  switch (operator) {
+    case '=': return actual === expected;
+    case '>': return actual > expected;
+    default: return actual < expected;
+  }
 }
 
 function variableName(value) {
@@ -620,6 +672,36 @@ async function executeBlock(block, token, ctx) {
       spriteVisibilityById[state.spriteId] = false;
       updateSprite();
       await sleep(160, token);
+      break;
+
+    case 'createclone': {
+      const parent = allSprites().find((sprite) => sprite.id === ctx.spriteId);
+      if (!parent) {
+        showToast('Cannot clone a sprite that no longer exists.');
+        break;
+      }
+      runtimeClones.push({
+        id: 'runtime-clone-' + (++runtimeCloneId),
+        parentSpriteId: parent.id,
+        parentName: parent.name || parent.id,
+        src: parent.src,
+        x: state.x,
+        y: state.y,
+        heading: state.heading,
+        size: state.size,
+        visible: state.visible
+      });
+      renderRuntimeClones();
+      await sleep(80, token);
+      break;
+    }
+
+    case 'deleteclones':
+      for (let index = runtimeClones.length - 1; index >= 0; index--) {
+        if (runtimeClones[index].parentSpriteId === ctx.spriteId) runtimeClones.splice(index, 1);
+      }
+      renderRuntimeClones();
+      await sleep(80, token);
       break;
 
     case 'setsize':

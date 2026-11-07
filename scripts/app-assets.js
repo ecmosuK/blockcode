@@ -300,6 +300,7 @@ function renderStageSpritePreviews() {
     item.dataset.spriteId = sprite.id;
     item.style.left = spritePreviewPositions[sprite.id].x + '%';
     item.style.top = spritePreviewPositions[sprite.id].y + '%';
+    item.style.zIndex = String(spritePreviewZIndex(sprite.id));
 
     const image = document.createElement('img');
     image.src = sprite.src;
@@ -307,6 +308,22 @@ function renderStageSpritePreviews() {
     item.appendChild(image);
     stageEl.appendChild(item);
   });
+}
+
+function spritePreviewZIndex(id) {
+  const index = runtimeSprites.findIndex((sprite) => sprite.id === id);
+  return Math.max(0, index) + 1;
+}
+
+function bringSpritePreviewToFront(id) {
+  const sprite = id === state.spriteId
+    ? spriteEl
+    : stageEl.querySelector('.stage-extra-sprite[data-sprite-id="' + id + '"]');
+  if (!sprite) return;
+  const highest = Array.from(stageEl.querySelectorAll('.stage-extra-sprite'))
+    .reduce((max, element) => Math.max(max, Number(element.style.zIndex) || 0),
+      Number(spriteEl.style.zIndex) || 0);
+  sprite.style.zIndex = String(highest + 1);
 }
 
 function defaultSpritePreviewPosition(id) {
@@ -537,7 +554,7 @@ function makeAssetRow(item, active, kind) {
 
 function openAssetEditor(item, kind, row) {
   assetEditorHost.innerHTML = '';
-  assetEditorTitle.textContent = 'Edit ' + (kind === 'sprite' ? 'sprite: ' : 'background: ') + (item.name || item.id);
+  assetEditorTitle.textContent = (kind === 'sprite' ? 'Create sprite from: ' : 'Edit background: ') + (item.name || item.id);
 
   const editor = document.createElement('form');
   editor.className = 'asset-editor';
@@ -548,7 +565,7 @@ function openAssetEditor(item, kind, row) {
   nameCaption.textContent = 'Name';
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
-  nameInput.value = item.name || '';
+  nameInput.value = kind === 'sprite' ? (item.name || 'Sprite') + ' copy' : item.name || '';
   nameInput.maxLength = 48;
   nameLabel.append(nameCaption, nameInput);
   editor.appendChild(nameLabel);
@@ -1612,8 +1629,30 @@ function openAssetEditor(item, kind, row) {
         scaleY: layer.scaleY || 1,
         rotation: layer.rotation || 0
       }));
-      runtimeSprites = runtimeSprites.map((sprite) => sprite.id === item.id ? updated : sprite);
-      if (state.spriteId === item.id) applySpriteById(item.id, false);
+      saveSpriteWorkspaces();
+      if (state.spriteId === item.id) saveActiveSpritePreviewPosition();
+      const created = Object.assign({}, updated, {
+        id: 'sprite-' + (++uid),
+        custom: true,
+        modified: false
+      });
+      runtimeSprites.push(created);
+      const sourceWorkspace = workspaceBySprite[item.id] ||
+        (activeWorkspaceSpriteId === item.id ? workspace : []);
+      workspaceBySprite[created.id] = sourceWorkspace.map((script) => {
+        const copy = script.map(cloneBlockTree);
+        copy.x = script.x;
+        copy.y = script.y;
+        copy.zIndex = script.zIndex;
+        return copy;
+      });
+      const sourcePosition = spritePreviewPositions[item.id] || defaultSpritePreviewPosition(item.id);
+      spritePreviewPositions[created.id] = {
+        x: clamp(sourcePosition.x + 6, 5, 95),
+        y: clamp(sourcePosition.y + 6, 5, 95)
+      };
+      spriteVisibilityById[created.id] = true;
+      selectWorkspaceSprite(created.id);
     } else {
       const baseCss = item.baseCss || item.css;
       updated.baseCss = baseCss;
@@ -1635,7 +1674,7 @@ function openAssetEditor(item, kind, row) {
     refreshAssetLists();
     renderPalette();
     renderWorkspace();
-    showToast((kind === 'sprite' ? 'Sprite' : 'Background') + ' updated.');
+    showToast(kind === 'sprite' ? 'New sprite created; original unchanged.' : 'Background updated.');
     setView('assets');
   });
 

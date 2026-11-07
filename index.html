@@ -8,7 +8,42 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="app">
+  <main id="welcomeScreen" class="welcome-screen" aria-labelledby="welcomeTitle">
+    <div class="welcome-card">
+      <div class="welcome-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="3.5" width="18" height="5" rx="2.5" fill="#ffd166"/>
+            <rect x="3" y="9.5" width="14" height="5" rx="2.5" fill="#5b9bff"/>
+            <rect x="3" y="15.5" width="10" height="5" rx="2.5" fill="#c084fc"/>
+          </svg>
+        </div>
+        <span>BlockCode</span>
+      </div>
+      <p class="welcome-eyebrow">VISUAL WATCH PROGRAMMING</p>
+      <h1 id="welcomeTitle">What would you like to do?</h1>
+      <p class="welcome-description">Open a saved project or start creating something new.</p>
+      <div class="welcome-actions">
+        <button id="welcomeOpenProjectBtn" class="welcome-choice" type="button">
+          <span class="welcome-choice-icon" aria-hidden="true">↗</span>
+          <span class="welcome-choice-copy">
+            <strong>Open a project</strong>
+            <span>Choose a saved .blockcode file</span>
+          </span>
+          <span class="welcome-choice-arrow" aria-hidden="true">→</span>
+        </button>
+        <button id="welcomeNewProjectBtn" class="welcome-choice welcome-choice-primary" type="button">
+          <span class="welcome-choice-icon" aria-hidden="true">＋</span>
+          <span class="welcome-choice-copy">
+            <strong>Make a new project</strong>
+            <span>Start with a clean workspace</span>
+          </span>
+          <span class="welcome-choice-arrow" aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>
+  </main>
+  <div class="app" inert aria-hidden="true">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true">
@@ -25,6 +60,12 @@
         </div>
       </div>
       <div class="actions">
+        <button id="newProjectBtn" class="btn btn-ghost" type="button" title="Create a new project">New</button>
+        <button id="openProjectBtn" class="btn btn-ghost" type="button" title="Open a BlockCode project">Open</button>
+        <button id="saveProjectBtn" class="btn btn-ghost" type="button" title="Save the current project">Save</button>
+        <button id="saveProjectAsBtn" class="btn btn-ghost" type="button" title="Save a copy of the current project">Save As</button>
+        <input id="openProjectInput" type="file" accept=".blockcode,.json,application/json" hidden>
+        <button id="updateBtn" class="btn btn-ghost" type="button" title="Check GitHub for a BlockCode update" hidden>Check updates</button>
         <button id="runBtn" class="btn btn-run" type="button">Run</button>
         <button id="dictionaryBtn" class="btn btn-dictionary" type="button" aria-haspopup="dialog" aria-controls="codeDictionary" aria-label="Open the code dictionary (F)" title="Open the code dictionary (F)">
           Dictionary

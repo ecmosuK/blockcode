@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" fill="none"><g stroke="#374151" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" paint-order="stroke fill"><defs><clipPath id="tennis-racket-face"><ellipse cx="36" cy="27" rx="13.5" ry="17.5"/></clipPath></defs>
+    <ellipse cx="36" cy="27" rx="17" ry="21" fill="#22C55E"/>
+    <ellipse cx="36" cy="27" rx="13.5" ry="17.5" fill="#F0FDF4" stroke="none"/>
+    <g clip-path="url(#tennis-racket-face)" stroke="#15803D" stroke-width="0.9">
+      <path d="M26 8v38M30 8v38M34 8v38M38 8v38M42 8v38M46 8v38"/>
+      <path d="M21 14h30M21 18h30M21 22h30M21 26h30M21 30h30M21 34h30M21 38h30M21 42h30"/>
+    </g>
+    <path d="M32 44h8l2 23H30Z" fill="#92400E"/>
+    <path d="M31.5 50h9M31.5 55h9M31.5 60h9" stroke="#78350F" stroke-width="1.2"/>
+    <rect x="28" y="65" width="16" height="5" rx="2.5" fill="#374151"/></g></svg>

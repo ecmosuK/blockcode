@@ -32,6 +32,13 @@ function selectOptionsFor(type) {
   if (type === 'function') {
     return functionNames().map((name) => ({ value: name, label: name }));
   }
+  if (type === 'signal') {
+    const names = signalNames();
+    return (names.length ? names : ['message1']).map((name) => ({ value: name, label: name }));
+  }
+  if (type === 'operator') {
+    return ['<', '=', '>'].map((operator) => ({ value: operator, label: operator }));
+  }
   if (type === 'variable') {
     return workspaceVariables.map((name) => ({ value: name, label: name }));
   }
@@ -39,6 +46,14 @@ function selectOptionsFor(type) {
     return workspaceLists.map((name) => ({ value: name, label: name }));
   }
   return [];
+}
+
+function distanceTargetOptions() {
+  const edges = ['top', 'bottom', 'left', 'right'].map((edge) => ({
+    value: 'edge:' + edge,
+    label: edge
+  }));
+  return edges.concat(selectOptionsFor('sprite'));
 }
 
 let variablesLoaded = false;
@@ -107,6 +122,11 @@ function saveWorkspaceLists() {
 }
 
 const VALUE_SOCKET_DIAMETER = 30;
+const HEXAGONAL_SOCKET_WIDTH = VALUE_SOCKET_DIAMETER * 2 / Math.sqrt(3);
+const BLOCK_CONTENT_INSET = 22;
+const HEXAGONAL_REPORTER_ACTIONS = new Set([
+  'equals', 'less', 'greater', 'not-equal'
+]);
 let blockTextMeasureContext = null;
 
 function blockTextWidth(text, font) {
@@ -128,8 +148,11 @@ function blockSlotContentWidth(block, slot) {
   }
   if (slot.type === 'variable') return slot.w;
   if (slot.type === 'sprite' || slot.type === 'touching' || slot.type === 'background' ||
-      slot.type === 'function' || slot.type === 'list') {
-    let options = selectOptionsFor(slot.type);
+      slot.type === 'function' || slot.type === 'signal' || slot.type === 'operator' ||
+      slot.type === 'list') {
+    let options = block.type === 'distance' && slot.field === 'sprite'
+      ? distanceTargetOptions()
+      : selectOptionsFor(slot.type);
     if (slot.type === 'touching') {
       options = [{ value: 'edge', label: 'edge' }].concat(selectOptionsFor('sprite'));
     }
@@ -173,13 +196,23 @@ function blockRenderSize(block) {
   if (!def) return { width: 0, height: 0 };
 
   let requiredWidth = def.width;
+  let contentRight = 0;
+  let hasExpression = false;
 
   blockSlotLayouts(block).forEach((slot) => {
     const value = block.params[slot.field];
-    const hasExpression = slot.type === 'value' && isExpression(value);
+    const slotHasExpression = slot.type === 'value' && isExpression(value);
+    hasExpression = hasExpression || slotHasExpression;
+    const slotRight = slot.x + slot.w +
+      (slotHasExpression ? expressionSuffixSpace(slot) : 0);
+    contentRight = Math.max(contentRight, slotRight);
     requiredWidth = Math.max(requiredWidth, slot.x + slot.w +
-      (hasExpression ? expressionSuffixSpace(slot) : 0));
+      (slotHasExpression ? expressionSuffixSpace(slot) : 0));
   });
+
+  if (hasExpression) {
+    requiredWidth = Math.max(requiredWidth, contentRight + BLOCK_CONTENT_INSET);
+  }
 
   return { width: Math.ceil(requiredWidth), height: def.height };
 }
@@ -198,8 +231,12 @@ function renderSelectSlot(block, slot, palette) {
   const refreshOptions = () => {
     const options = slot.type === 'touching'
       ? [{ value: 'edge', label: 'edge' }].concat(selectOptionsFor('sprite'))
-      : selectOptionsFor(slot.type);
-    const selected = block.params[slot.field] == null ? '' : String(block.params[slot.field]);
+      : (block.type === 'distance' && slot.field === 'sprite'
+        ? distanceTargetOptions()
+        : selectOptionsFor(slot.type));
+    const selected = block.params[slot.field] == null
+      ? (slot.type === 'operator' ? String(DEFS[block.type].fields[slot.field]) : '')
+      : String(block.params[slot.field]);
     select.replaceChildren();
 
     if (!options.length) {
@@ -218,7 +255,8 @@ function renderSelectSlot(block, slot, palette) {
       select.appendChild(node);
     });
 
-    if (!isVariableSlot && !isListSlot && !isSpriteSlot && selected &&
+    if (!isVariableSlot && !isListSlot && !isSpriteSlot &&
+        slot.type !== 'signal' && slot.type !== 'operator' && selected &&
         !options.some((option) => option.value === selected)) {
       const node = document.createElement('option');
       node.value = selected;
@@ -229,6 +267,9 @@ function renderSelectSlot(block, slot, palette) {
     const selectedAvailable = options.some((option) => option.value === selected);
     if (isSpriteSlot && selected && !selectedAvailable) {
       block.params[slot.field] = '';
+    }
+    if ((slot.type === 'signal' || slot.type === 'operator') && selected && !selectedAvailable) {
+      block.params[slot.field] = options[0] ? options[0].value : '';
     }
     select.value = selectedAvailable
       ? selected
@@ -272,7 +313,8 @@ function renderTextSlot(block, slot, palette) {
     const previousWidth = blockRenderSize(block).width;
     block.params[slot.field] = input.value;
     let rerendered = false;
-    if (!palette && (blockSlotContentWidth(block, slot) !== previousContentWidth ||
+    if (!palette && (block.type === 'broadcast' ||
+        blockSlotContentWidth(block, slot) !== previousContentWidth ||
         blockRenderSize(block).width !== previousWidth)) {
       const start = input.selectionStart;
       const end = input.selectionEnd;
@@ -306,9 +348,12 @@ function renderValueSlot(block, slot, palette) {
     holder.dataset.requiresConditionReporter = 'true';
   }
   const value = slotValue(block, slot);
+  const isConditionSlot = holder.dataset.requiresConditionReporter === 'true';
   const expression = isExpression(value);
   const expressionSize = expression ? blockRenderSize(value) : null;
-  const socketWidth = expressionSize ? expressionSize.width : VALUE_SOCKET_DIAMETER;
+  const socketWidth = expressionSize
+    ? expressionSize.width
+    : (isConditionSlot ? HEXAGONAL_SOCKET_WIDTH : VALUE_SOCKET_DIAMETER);
   const socketHeight = expressionSize ? expressionSize.height : VALUE_SOCKET_DIAMETER;
   holder.style.left = (expression
     ? slot.x
@@ -319,7 +364,12 @@ function renderValueSlot(block, slot, palette) {
 
   if (isExpression(value)) {
     holder.classList.add('has-expression');
-    const expression = renderBlock(value, null, { palette: palette });
+    const expression = renderBlock(value, null, {
+      palette: palette,
+      reporterShape: holder.dataset.requiresConditionReporter === 'true'
+        ? 'hexagon'
+        : 'circle'
+    });
     if (expression) holder.appendChild(expression);
     if (slot.suffix) {
       const suffix = document.createElement('span');
@@ -345,6 +395,13 @@ function renderValueSlot(block, slot, palette) {
       renderWatchCpp(block.id);
     });
     holder.appendChild(input);
+    if (slot.suffixOnInput && slot.suffix) {
+      const suffix = document.createElement('span');
+      suffix.className = 'expr-suffix';
+      suffix.textContent = slot.suffix;
+      suffix.style.color = slot.suffixColor || categoryColor(DEFS[block.type].category);
+      holder.appendChild(suffix);
+    }
   }
 
   return holder;
@@ -440,8 +497,14 @@ function renderBlock(block, path, opts) {
   const size = blockRenderSize(block);
   const el = document.createElement('div');
   const isReporterBlock = !!def.reporter;
+  const isHexagonalReporter = isReporterBlock &&
+    (opts.reporterShape === 'hexagon' ||
+      (opts.reporterShape !== 'circle' &&
+        (def.category === 'sensing' || HEXAGONAL_REPORTER_ACTIONS.has(def.action))));
 
-  el.className = 'block' + (isReporterBlock ? ' reporter' : '') + (def.cblock ? ' cblock-head' : '');
+  el.className = 'block' + (isReporterBlock ? ' reporter' : '') +
+    (isHexagonalReporter ? ' is-hexagonal-reporter' : '') +
+    (def.cblock ? ' cblock-head' : '');
   el.dataset.id = block.id;
   el.dataset.type = block.type;
   el.style.width = size.width + 'px';
@@ -477,7 +540,8 @@ function renderBlock(block, path, opts) {
     if (slot.type === 'value') {
       control = renderValueSlot(block, slot, palette);
     } else if (slot.type === 'sprite' || slot.type === 'touching' || slot.type === 'background' ||
-        slot.type === 'function' || slot.type === 'variable' || slot.type === 'list') {
+        slot.type === 'function' || slot.type === 'signal' || slot.type === 'operator' ||
+        slot.type === 'variable' || slot.type === 'list') {
       control = renderSelectSlot(block, slot, palette);
     } else if (slot.type === 'text') {
       control = renderTextSlot(block, slot, palette);

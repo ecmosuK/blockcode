@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="236" height="44" viewBox="0 0 236 44" fill="none">
+  <defs>
+    <clipPath id="blockClip"><path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H232 Q236 0 236 4 V34 Q236 38 232 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z"/></clipPath>
+    <clipPath id="tabClip"><path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z"/></clipPath>
+  </defs>
+  <path d="M4 0 H16 V1 Q16 6 19 6 H33 Q36 6 36 1 V0 H232 Q236 0 236 4 V34 Q236 38 232 38 H4 Q0 38 0 34 V4 Q0 0 4 0 Z" fill="#ec4899"/>
+  <rect x="0" y="36" width="236" height="2" fill="#bd3a7a" clip-path="url(#blockClip)"/>
+  <path d="M16 34 H36 V39 Q36 44 33 44 H19 Q16 44 16 39 V34 Z" fill="#ec4899"/>
+  <path d="M16 36 V39 Q16 44 19 44 H33 Q36 44 36 39 V36" fill="none" stroke="#bd3a7a" stroke-width="4" clip-path="url(#tabClip)"/>
+  <text x="40" y="24" fill="#500724" font-family="'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif" font-size="14.5" font-weight="600">create clone of myself</text>
+</svg>

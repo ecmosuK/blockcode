@@ -21,6 +21,7 @@ import tempfile
 import threading
 import time
 import wave
+import zlib
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -35,10 +36,6 @@ BUILD_CACHE = Path(os.environ.get(
 )) / "BlockCodeWatchBuild" / "watch-elf-app"
 IDF_PATH = Path(os.environ.get("IDF_PATH", ""))
 IDF_PYTHON_ENV_PATH = Path(os.environ.get("IDF_PYTHON_ENV_PATH", ""))
-QUANTUM_OS_DIR = Path(os.environ.get(
-    "QUANTUM_OS_DIR", Path.home() / "Downloads" / "quantum-os" / "quantum-os"
-))
-PUSH_APP_SCRIPT = QUANTUM_OS_DIR / "tools" / "push-app.py"
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 MAX_ELF_BYTES = 1024 * 1024
 BUILD_LOCK = threading.Lock()
@@ -91,6 +88,77 @@ def validate_request(payload: object) -> tuple[str, str, str]:
     if not isinstance(name, str) or not name.strip():
         raise ValueError("App name is required.")
     return source, app_id, name.strip()
+
+
+def list_serial_ports() -> list[dict[str, str]]:
+    try:
+        from serial.tools import list_ports
+    except ImportError as exc:
+        raise RuntimeError("Serial port selection requires pyserial in the ESP-IDF Python environment.") from exc
+    return [
+        {
+            "device": port.device,
+            "description": port.description or port.device,
+            "hwid": port.hwid or "",
+        }
+        for port in list_ports.comports()
+    ]
+
+
+def validate_upload_port(payload: object) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("Expected a JSON object.")
+    port = payload.get("port")
+    if not isinstance(port, str) or not port.strip() or len(port) > 128:
+        raise ValueError("Choose a connected watch before uploading.")
+    if not re.fullmatch(r"[A-Za-z0-9_./:\\-]+", port):
+        raise ValueError("The selected serial port is invalid.")
+    if port not in {device["device"] for device in list_serial_ports()}:
+        raise ValueError("The selected serial port is no longer connected. Choose a connected watch and retry.")
+    return port
+
+
+def read_upload_response(connection: object, needle: bytes, timeout: float) -> str:
+    deadline = time.monotonic() + timeout
+    response = bytearray()
+    while time.monotonic() < deadline:
+        chunk = connection.read(max(1, min(connection.in_waiting or 1, 4096)))
+        if not chunk:
+            continue
+        response.extend(chunk)
+        if b"QOS_ERR" in response:
+            raise RuntimeError(response.decode("utf-8", errors="replace").strip())
+        if needle in response:
+            return response.decode("utf-8", errors="replace").strip()
+    raise RuntimeError(
+        "Timed out waiting for " + needle.decode("ascii") +
+        " from the watch. Check its USB connection and firmware."
+    )
+
+
+def upload_app_over_serial(package: bytes, app_id: str, port: str) -> str:
+    if not package or len(package) > 4 * 1024 * 1024:
+        raise ValueError("The built app is empty or larger than the watch upload limit (4 MiB).")
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("The ESP-IDF Python environment is missing pyserial. Repair the BlockCode setup and retry.") from exc
+
+    checksum = zlib.crc32(package) & 0xFFFFFFFF
+    header = f"QOSUPLOAD {len(package)} {checksum:08x} {app_id}.app\n".encode("ascii")
+    with serial.Serial(port, baudrate=115200, timeout=0.1, write_timeout=10) as connection:
+        connection.dtr = False
+        connection.rts = False
+        time.sleep(2.2)
+        connection.reset_input_buffer()
+        connection.write(header)
+        connection.flush()
+        read_upload_response(connection, b"QOS_READY", 30)
+
+        for offset in range(0, len(package), 1024):
+            connection.write(package[offset:offset + 1024])
+        connection.flush()
+        return read_upload_response(connection, b"QOS_OK", 30)
 
 
 def cpp_string(value: str) -> str:
@@ -414,6 +482,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b'{"ok":true,"target":"esp32s3"}')
             return
+        if request_path == "/ports":
+            try:
+                self.send_json(200, {"ports": list_serial_ports()})
+            except Exception as exc:
+                self.send_json(500, {"error": str(exc)})
+            return
         relative = request_path.lstrip("/") or "index.html"
         candidate = (ROOT / relative).resolve()
         try:
@@ -465,35 +539,15 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Generated source is too large.")
             payload = json.loads(request_body)
             source, app_id, name = validate_request(payload)
+            serial_port = validate_upload_port(payload) if endpoint == "/upload" else None
             print(f"[build-service] building {app_id} with ESP-IDF ELF loader")
             package = build_watch_app(source, app_id, name)
 
             if endpoint == "/upload":
-                if not PUSH_APP_SCRIPT.is_file():
-                    raise RuntimeError(
-                        f"Quantum OS USB uploader not found: {PUSH_APP_SCRIPT}. "
-                        "Set QUANTUM_OS_DIR to the Quantum OS project folder."
-                    )
-
                 with UPLOAD_LOCK:
-                    with tempfile.TemporaryDirectory(prefix="blockcode-upload-") as temp_dir:
-                        app_path = Path(temp_dir) / f"{app_id}.app"
-                        app_path.write_bytes(package)
-                        print(f"[build-service] uploading {app_id}.app to the watch over USB-Serial-JTAG")
-                        result = subprocess.run(
-                            [str(idf_python()), str(PUSH_APP_SCRIPT), str(app_path)],
-                            text=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            timeout=300,
-                            check=False,
-                        )
-
-                if result.returncode != 0:
-                    output = result.stdout[-6000:].strip()
-                    raise RuntimeError(output or "USB upload failed. Is the watch connected and running Quantum OS?")
-
-                self.send_json(200, {"ok": True, "id": app_id, "name": name, "message": result.stdout.strip()})
+                    print(f"[build-service] uploading {app_id}.app to {serial_port} over USB-Serial-JTAG")
+                    message = upload_app_over_serial(package, app_id, serial_port)
+                self.send_json(200, {"ok": True, "id": app_id, "name": name, "message": message})
                 return
 
             self.send_response(200)

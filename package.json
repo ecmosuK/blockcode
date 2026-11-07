@@ -1,0 +1,73 @@
+{
+  "name": "blockcode-windows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BlockCode visual coding playground for Windows",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "node desktop/build-installer.cjs",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.blockcode.desktop",
+    "productName": "BlockCode",
+    "publish": {
+      "provider": "github",
+      "owner": "ecmosuK",
+      "repo": "quarkband",
+      "releaseType": "release"
+    },
+    "extraResources": [
+      {
+        "from": "tools/build-service.py",
+        "to": "blockcode-build-service/tools/build-service.py"
+      },
+      {
+        "from": "watch-elf-app",
+        "to": "blockcode-build-service/watch-elf-app",
+        "filter": [
+          "**/*",
+          "!build/**",
+          "!managed_components/**/test_apps/**",
+          "!managed_components/**/tests/**"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "index.html",
+      "styles.css",
+      "app.js",
+      "scripts/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}
