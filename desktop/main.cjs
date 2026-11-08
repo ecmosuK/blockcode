@@ -238,10 +238,7 @@ async function buildServicePaths() {
     await installEspIdf(installRoot, toolsPath, defaultIdfPath);
   }
 
-  const pythonEnvPath = process.env.IDF_PYTHON_ENV_PATH ||
-    (idfPath === legacyIdfPath || process.env.IDF_PATH
-      ? path.join(toolsPath, 'tools', 'python', 'v6.1', 'venv')
-      : null);
+  const pythonEnvPath = process.env.IDF_PYTHON_ENV_PATH || null;
   const idfEnvironment = readIdfEnvironment(idfPath, toolsPath, pythonEnvPath);
   return {
     python: idfEnvironment.python,
