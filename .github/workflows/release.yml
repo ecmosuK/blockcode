@@ -24,6 +24,14 @@ jobs:
           $version = $env:GITHUB_REF_NAME.Substring(1)
           npm version $version --no-git-tag-version
       - run: npm run release
+      - name: Match update metadata to installer asset
+        shell: pwsh
+        run: |
+          $metadataPath = Join-Path $PWD "dist/latest.yml"
+          $metadata = Get-Content $metadataPath -Raw
+          $updatedMetadata = $metadata.Replace("blockcode-setup.exe", "blockcode setup.exe")
+          if ($updatedMetadata -eq $metadata) { throw "Could not find the installer path in latest.yml." }
+          [IO.File]::WriteAllText($metadataPath, $updatedMetadata, [Text.UTF8Encoding]::new($false))
       - name: Publish GitHub release
         shell: pwsh
         run: |

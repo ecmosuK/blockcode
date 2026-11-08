@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.blockcode.desktop",
     "productName": "BlockCode",
+    "artifactName": "blockcode setup.exe",
     "publish": {
       "provider": "github",
       "owner": "ecmosuK",
