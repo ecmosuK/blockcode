@@ -23,11 +23,23 @@ npm install
 npm start
 ```
 
-To create a Windows installer, run `npm run dist`. The installer is written to
-`Downloads/blockcode setup.exe`; it creates Start menu and desktop shortcuts.
-The installer includes the watch build script, firmware project, and a pinned copy
-of Espressif's installation manager, but it does **not** download the multi-gigabyte
-toolchain during installation.
+### Make the Windows installer (Electron)
+
+Prerequisites: [Node.js](https://nodejs.org/) and npm.
+
+1. Install dependencies: `npm install` (or `npm ci` for a clean install).
+2. (Optional) Download/verify the pinned Espressif Installation Manager CLI used for first-launch toolchain setup: `npm run prepare:eim`.  
+   This is run automatically by the packaging commands below and writes `tools/eim-cli.exe` (gitignored).
+3. Build the installer: `npm run dist`.
+
+`npm run dist` runs `node desktop/prepare-eim-cli.cjs` and then `node desktop/build-installer.cjs`. The build script stages the Electron app in a temporary directory (to avoid stale/locked `win-unpacked` folders), runs `electron-builder`, and copies the final NSIS installer to `Downloads\blockcode setup.exe`.
+
+Other packaging commands:
+- `npm start` — run the desktop app from source with Electron.
+- `npm run pack` — create an unpacked app directory for testing (`electron-builder --dir`, after preparing the EIM CLI).
+- `npm run release` — build the Windows NSIS installer with `electron-builder --win nsis --publish never` (useful for CI/artifacts).
+
+The installer creates Start menu and desktop shortcuts. It includes the watch build script, firmware project, and a pinned copy of Espressif's installation manager, but it does **not** download the multi-gigabyte toolchain during installation.
 
 On first launch, BlockCode automatically downloads the pinned ESP-IDF 6.1 and
 ESP32-S3 build tools, verifies the archive's SHA-256, and installs them under
