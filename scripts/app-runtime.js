@@ -8,6 +8,13 @@ let suppressSpriteClickUntil = 0;
 const runtimeSpriteStates = Object.create(null);
 let runtimeCloneId = 0;
 const runtimeClones = [];
+let connectivityPreviewNoticeShown = false;
+
+function showConnectivityPreviewNotice() {
+  if (connectivityPreviewNoticeShown) return;
+  connectivityPreviewNoticeShown = true;
+  showToast('Wi-Fi and Bluetooth blocks run on the watch.');
+}
 
 function stageSize() {
   // Match the coordinate space used by generated watch apps.
@@ -188,6 +195,10 @@ async function runPaletteBlock(block) {
     showToast('Stop the program before running a palette block.');
     return;
   }
+  if (DEFS[block.type] && DEFS[block.type].category === 'connectivity') {
+    showConnectivityPreviewNotice();
+    return;
+  }
 
   if (activeWorkspaceSpriteId) applySpriteById(activeWorkspaceSpriteId, false);
   const vars = monitorRuntimeValues || createRuntimeVariables();
@@ -339,6 +350,10 @@ function evalNumber(value, vars) {
       case 'greater': return a() > b() ? 1 : 0;
       case 'and': return a() !== 0 && b() !== 0 ? 1 : 0;
       case 'or': return a() !== 0 || b() !== 0 ? 1 : 0;
+      case 'wifi-connected':
+      case 'ble-connected':
+        showConnectivityPreviewNotice();
+        return 0;
       case 'touching': {
         const target = String(value.params.sprite || '');
         const size = stageSize();
@@ -799,6 +814,19 @@ async function executeBlock(block, token, ctx) {
     case 'stopsounds':
       stopAllAudio();
       await sleep(120, token);
+      break;
+
+    case 'wifi-connect':
+    case 'wifi-disconnect':
+    case 'http-get':
+    case 'http-post':
+    case 'ble-scan':
+    case 'ble-connect':
+    case 'ble-disconnect':
+    case 'ble-gatt-read':
+    case 'ble-gatt-write':
+      showConnectivityPreviewNotice();
+      await sleep(300, token);
       break;
 
     case 'wait': {

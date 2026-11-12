@@ -3,3 +3,5 @@ dist*/
 Downloads/
 updated-installer-updater/
 watch-elf-app/build/
+tools/eim-cli.exe
+tools/*.part

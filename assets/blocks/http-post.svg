@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="430" height="44" viewBox="0 0 430 44" fill="none">
+  <path d="M4 0H16V1Q16 6 19 6H33Q36 6 36 1V0H426Q430 0 430 4V34Q430 38 426 38H4Q0 38 0 34V4Q0 0 4 0Z" fill="#0ea5e9"/>
+  <rect x="0" y="36" width="430" height="2" fill="#0782bd"/><path d="M16 34H36V39Q36 44 33 44H19Q16 44 16 39V34Z" fill="#0ea5e9"/>
+  <g transform="translate(16 11)" stroke="#082f49" stroke-width="2" stroke-linecap="round"><path d="M2 4H20M2 10H16M2 16H12"/></g>
+  <text x="44" y="25" fill="#082f49" font-family="sans-serif" font-size="14" font-weight="600">HTTP POST</text>
+  <rect x="130" y="8" width="175" height="22" rx="4" fill="white" fill-opacity=".95"/>
+  <text x="309" y="24" fill="#082f49" font-family="sans-serif" font-size="13" font-weight="600">body</text>
+  <rect x="328" y="8" width="82" height="22" rx="4" fill="white" fill-opacity=".95"/>
+</svg>

@@ -16,16 +16,91 @@ const buildNoticeCloseEl = $('buildNoticeClose');
 const buildNoticeProgressEl = $('buildNoticeProgress');
 const buildNoticeTitleEl = $('buildNoticeTitle');
 const buildNoticeMessageEl = $('buildNoticeMessage');
+const buildNoticeActionsEl = $('buildNoticeActions');
+const buildNoticeRetryEl = $('buildNoticeRetry');
+const buildNoticeRepairEl = $('buildNoticeRepair');
+const buildNoticeCancelEl = $('buildNoticeCancel');
 
-function showBuildNotice(title, message, status, loading) {
+function setBuildNoticeActions(actions = {}) {
+  const visible = {
+    retry: Boolean(actions.retry),
+    repair: Boolean(actions.repair),
+    cancel: Boolean(actions.cancel)
+  };
+  buildNoticeRetryEl.hidden = !visible.retry;
+  buildNoticeRepairEl.hidden = !visible.repair;
+  buildNoticeCancelEl.hidden = !visible.cancel;
+  buildNoticeActionsEl.hidden = !(visible.retry || visible.repair || visible.cancel);
+}
+
+function setBuildNoticeProgress(loading, percent) {
+  const determinate = Boolean(loading) && typeof percent === 'number' && Number.isFinite(percent);
+  buildNoticeProgressEl.classList.toggle('is-determinate', determinate);
+  buildNoticeProgressEl.hidden = !loading;
+  if (determinate) {
+    buildNoticeProgressEl.style.setProperty(
+      '--build-progress',
+      `${Math.max(0, Math.min(100, percent))}%`
+    );
+  } else {
+    buildNoticeProgressEl.style.removeProperty('--build-progress');
+  }
+}
+
+function showBuildNotice(title, message, status, loading, options = {}) {
   buildNoticeEl.classList.toggle('is-error', status === 'error');
   buildNoticeEl.classList.toggle('is-success', status === 'success');
   buildNoticeEl.classList.toggle('is-loading', Boolean(loading));
   buildNoticeEl.setAttribute('aria-busy', String(Boolean(loading)));
   buildNoticeTitleEl.textContent = title;
   buildNoticeMessageEl.textContent = message;
-  buildNoticeProgressEl.hidden = !loading;
+  setBuildNoticeProgress(Boolean(loading), options.percent);
+  setBuildNoticeActions(options.actions || {});
   buildNoticeEl.hidden = false;
+}
+
+function toolchainNotice(status) {
+  if (!status || !status.phase || status.phase === 'idle') return null;
+  if (status.phase === 'ready') {
+    return {
+      title: 'Watch build tools ready',
+      message: status.message || 'ESP-IDF 6.1 and the ESP32-S3 build tools are installed.',
+      status: 'success',
+      loading: false,
+      actions: {}
+    };
+  }
+  if (status.phase === 'error' || status.phase === 'cancelled') {
+    return {
+      title: status.phase === 'cancelled' ? 'Watch build setup cancelled' : 'Watch build setup failed',
+      message: status.message || 'The watch build tools could not be set up.',
+      status: 'error',
+      loading: false,
+      actions: { retry: true, repair: true }
+    };
+  }
+  return {
+    title: 'Setting up watch build tools',
+    message: status.message || 'Preparing the ESP-IDF 6.1 and ESP32-S3 build tools…',
+    status: 'loading',
+    loading: true,
+    actions: { cancel: Boolean(status.canCancel) },
+    percent: typeof status.percent === 'number' ? status.percent : undefined
+  };
+}
+
+function renderToolchainStatus(status) {
+  const notice = toolchainNotice(status);
+  if (!notice) return;
+  showBuildNotice(notice.title, notice.message, notice.status, notice.loading, {
+    actions: notice.actions,
+    percent: notice.percent
+  });
+  if (status.phase === 'ready') {
+    setTimeout(() => {
+      if (buildNoticeEl.classList.contains('is-success')) buildNoticeEl.hidden = true;
+    }, 3500);
+  }
 }
 
 if (window.blockCodeDesktop && window.blockCodeDesktop.onBuildServiceStatus) {
@@ -34,12 +109,62 @@ if (window.blockCodeDesktop && window.blockCodeDesktop.onBuildServiceStatus) {
       buildNoticeEl.hidden = true;
       return;
     }
-    showBuildNotice('Setting up watch build tools', status.message, 'loading', true);
+    showBuildNotice('Starting watch build service', status.message, 'loading', true);
+  });
+}
+
+if (window.blockCodeDesktop && window.blockCodeDesktop.onToolchainStatus) {
+  window.blockCodeDesktop.onToolchainStatus(renderToolchainStatus);
+}
+
+if (window.blockCodeDesktop && window.blockCodeDesktop.getToolchainStatus) {
+  window.blockCodeDesktop.getToolchainStatus().then((status) => {
+    if (status && status.phase && status.phase !== 'idle' && status.phase !== 'ready') {
+      renderToolchainStatus(status);
+    }
+  }).catch(() => {
+    /* the desktop bridge is unavailable in the browser build */
   });
 }
 
 buildNoticeCloseEl.addEventListener('click', () => {
   buildNoticeEl.hidden = true;
+});
+
+buildNoticeRetryEl.addEventListener('click', async () => {
+  showBuildNotice(
+    'Setting up watch build tools',
+    'Retrying the watch build tools setup…',
+    'loading',
+    true,
+    { actions: { cancel: true } }
+  );
+  try {
+    await window.blockCodeDesktop.retryToolchainSetup();
+  } catch {
+    /* failures are reported through the toolchain status channel */
+  }
+});
+
+buildNoticeRepairEl.addEventListener('click', async () => {
+  showBuildNotice(
+    'Repairing watch build tools',
+    'Removing and reinstalling ESP-IDF 6.1 and the ESP32-S3 build tools…',
+    'loading',
+    true,
+    { actions: { cancel: true } }
+  );
+  try {
+    await window.blockCodeDesktop.repairToolchain();
+  } catch {
+    /* failures are reported through the toolchain status channel */
+  }
+});
+
+buildNoticeCancelEl.addEventListener('click', () => {
+  if (window.blockCodeDesktop && window.blockCodeDesktop.cancelToolchainSetup) {
+    window.blockCodeDesktop.cancelToolchainSetup().catch(() => {});
+  }
 });
 
 /* ---------- View controls ---------- */

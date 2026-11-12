@@ -7,6 +7,15 @@ contextBridge.exposeInMainWorld('blockCodeDesktop', {
     ipcRenderer.on('build-service-status', listener);
     return () => ipcRenderer.removeListener('build-service-status', listener);
   },
+  getToolchainStatus: () => ipcRenderer.invoke('get-toolchain-status'),
+  retryToolchainSetup: () => ipcRenderer.invoke('retry-toolchain-setup'),
+  repairToolchain: () => ipcRenderer.invoke('repair-toolchain'),
+  cancelToolchainSetup: () => ipcRenderer.invoke('cancel-toolchain-setup'),
+  onToolchainStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('toolchain-status', listener);
+    return () => ipcRenderer.removeListener('toolchain-status', listener);
+  },
   newProject: () => ipcRenderer.invoke('new-project'),
   openProject: () => ipcRenderer.invoke('open-project'),
   saveProject: (contents, saveAs) =>

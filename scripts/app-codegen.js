@@ -71,6 +71,8 @@ function exprToCpp(value) {
       case 'and': return '(' + a() + ' != 0.0f && ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
       case 'or': return '(' + a() + ' != 0.0f || ' + b() + ' != 0.0f ? 1.0f : 0.0f)';
       case 'touching': return '(watch_touching(' + cppString(value.params.sprite) + ') ? 1.0f : 0.0f)';
+      case 'wifi-connected': return '(qos_app_wifi_connected() ? 1.0f : 0.0f)';
+      case 'ble-connected': return '(qos_app_ble_connected() ? 1.0f : 0.0f)';
       default: return '0.0f';
     }
   }
@@ -328,6 +330,77 @@ function emitCppBlock(block, indent, lines) {
 
     case 'stopsounds':
       cppPush(lines, indent, 'watch_stop_sounds();');
+      break;
+
+    case 'wifi-connect':
+      cppPush(lines, indent, 'if (qos_app_wifi_connect(' +
+        cppString(block.params.ssid || '') + ', ' +
+        cppString(block.params.password || '') + ', (uint32_t)(fminf(60.0f, fmaxf(0.0f, ' +
+        exprToCpp(block.params.timeout) + ')) * 1000.0f)) == 0) qos_app_say("Wi-Fi connected");');
+      cppPush(lines, indent, 'else qos_app_say("Wi-Fi connection failed");');
+      break;
+
+    case 'wifi-disconnect':
+      cppPush(lines, indent, 'if (qos_app_wifi_disconnect() == 0) qos_app_say("Wi-Fi disconnected");');
+      cppPush(lines, indent, 'else qos_app_say("Wi-Fi disconnect failed");');
+      break;
+
+    case 'http-get':
+    case 'http-post': {
+      const method = action === 'http-get' ? 'GET' : 'POST';
+      const body = action === 'http-post' ? cppString(block.params.body || '') : '""';
+      const result = 'http_status_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ char http_response[512] = {0};');
+      cppPush(lines, indent + 1, 'int ' + result + ' = qos_app_http_request(' +
+        cppString(method) + ', ' + cppString(block.params.url || '') + ', ' + body +
+        ', http_response, sizeof(http_response));');
+      cppPush(lines, indent + 1, 'if (' + result + ' >= 200 && ' + result +
+        ' < 300) qos_app_say(http_response[0] ? http_response : "HTTP request succeeded");');
+      cppPush(lines, indent + 1, 'else qos_app_say("HTTP request failed");');
+      cppPush(lines, indent, '}');
+      break;
+    }
+
+    case 'ble-scan': {
+      const result = 'ble_count_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ char ble_devices[512] = {0};');
+      cppPush(lines, indent + 1, 'int ' + result + ' = qos_app_ble_scan((uint32_t)(' +
+        'fminf(30.0f, fmaxf(0.0f, ' + exprToCpp(block.params.seconds) +
+        ')) * 1000.0f), ble_devices, sizeof(ble_devices));');
+      cppPush(lines, indent + 1, 'if (' + result + ' < 0) qos_app_say("BLE scan failed");');
+      cppPush(lines, indent + 1, 'else qos_app_say(' + result + ' ? ble_devices : "No BLE devices found");');
+      cppPush(lines, indent, '}');
+      break;
+    }
+
+    case 'ble-connect':
+      cppPush(lines, indent, 'if (qos_app_ble_connect(' + cppString(block.params.address || '') +
+        ') == 0) qos_app_say("BLE connected");');
+      cppPush(lines, indent, 'else qos_app_say("BLE connect failed; scan first");');
+      break;
+
+    case 'ble-disconnect':
+      cppPush(lines, indent, 'if (qos_app_ble_disconnect() == 0) qos_app_say("BLE disconnected");');
+      cppPush(lines, indent, 'else qos_app_say("BLE disconnect failed");');
+      break;
+
+    case 'ble-gatt-read': {
+      const result = 'ble_read_' + cppIdentifier(block.id);
+      cppPush(lines, indent, '{ char ble_value[256] = {0};');
+      cppPush(lines, indent + 1, 'int ' + result + ' = qos_app_ble_gatt_read(' +
+        cppString(block.params.service || '') + ', ' +
+        cppString(block.params.characteristic || '') + ', ble_value, sizeof(ble_value));');
+      cppPush(lines, indent + 1, 'qos_app_say(' + result + ' >= 0 ? ble_value : "BLE read failed");');
+      cppPush(lines, indent, '}');
+      break;
+    }
+
+    case 'ble-gatt-write':
+      cppPush(lines, indent, 'if (qos_app_ble_gatt_write(' +
+        cppString(block.params.service || '') + ', ' +
+        cppString(block.params.characteristic || '') + ', ' +
+        cppString(block.params.value || '') + ') == 0) qos_app_say("BLE write succeeded");');
+      cppPush(lines, indent, 'else qos_app_say("BLE write failed");');
       break;
 
     case 'wait':
@@ -1131,6 +1204,16 @@ function generateWatchCpp(spriteAssets, backgroundAssets) {
   add('extern "C" void qos_app_say(const char *);');
   add('extern "C" void qos_app_tone(float, float);');
   add('extern "C" void qos_app_play_audio(const int16_t *, uint32_t);');
+  add('extern "C" int qos_app_wifi_connect(const char *, const char *, uint32_t);');
+  add('extern "C" int qos_app_wifi_disconnect(void);');
+  add('extern "C" int qos_app_wifi_connected(void);');
+  add('extern "C" int qos_app_http_request(const char *, const char *, const char *, char *, size_t);');
+  add('extern "C" int qos_app_ble_scan(uint32_t, char *, size_t);');
+  add('extern "C" int qos_app_ble_connect(const char *);');
+  add('extern "C" int qos_app_ble_disconnect(void);');
+  add('extern "C" int qos_app_ble_connected(void);');
+  add('extern "C" int qos_app_ble_gatt_read(const char *, const char *, char *, size_t);');
+  add('extern "C" int qos_app_ble_gatt_write(const char *, const char *, const char *);');
   add('');
   emitCppSpriteAssets(spriteAssets || [], lines);
   emitCppBackgroundAssets(backgroundAssets || [], lines);
@@ -2516,10 +2599,22 @@ function chooseWatchAppName() {
 }
 
 function showBuildError(error) {
-  const unavailable = /failed to fetch|networkerror|could not connect to the build service/i.test(error.message || '');
+  const message = error && error.message ? error.message : '';
+  const needsToolchain = /watch build tools|toolchain|ESP-IDF 6\.1|Repair build tools|Retry setup/i.test(message);
+  if (needsToolchain) {
+    showBuildNotice(
+      'Watch build setup needed',
+      message || 'The watch build tools are not ready. Set them up and retry.',
+      'error',
+      false,
+      { actions: { retry: true, repair: true } }
+    );
+    return;
+  }
+  const unavailable = /failed to fetch|networkerror|could not connect to the build service/i.test(message);
   showBuildNotice('Build failed', unavailable
-    ? (error.message || 'Build service is unreachable. Open http://127.0.0.1:8765/.')
-    : (error.message || 'Could not reach the local watch build service.'), 'error', false);
+    ? (message || 'Build service is unreachable. Open http://127.0.0.1:8765/.')
+    : (message || 'Could not reach the local watch build service.'), 'error', false);
 }
 
 async function buildWatchApp() {

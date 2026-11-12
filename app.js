@@ -228,7 +228,13 @@ function initUpdater() {
       showToast('BlockCode ' + update.version + ' is available.');
     } else if (update.status === 'not-available') {
       setButton('Check updates', 'check', false, 'Check GitHub for a BlockCode update');
-      if (manualCheck) showToast('BlockCode is up to date.');
+      if (manualCheck) {
+        const currentVersion = update.currentVersion;
+        const latestVersion = update.version;
+        showToast(currentVersion && latestVersion && currentVersion !== latestVersion
+          ? 'Update check mismatch: running ' + currentVersion + ', release feed reports ' + latestVersion + '.'
+          : 'BlockCode is up to date' + (currentVersion ? ' (' + currentVersion + ')' : '') + '.');
+      }
       manualCheck = false;
     } else if (update.status === 'downloading') {
       setButton('Downloading ' + update.percent + '%', 'download', true, 'Downloading update');

@@ -212,10 +212,11 @@ window.BLOCK_PACK = {
     math: { title: 'Math', color: '#22c55e' },
     lists: { title: 'Lists', color: '#0ea5e9' },
     visual: { title: 'Visual', color: '#ec4899' },
-    audio: { title: 'Speech & audio', color: '#ef4444' }
+    audio: { title: 'Speech & audio', color: '#ef4444' },
+    connectivity: { title: 'Wi-Fi & Bluetooth', color: '#0ea5e9' }
   },
 
-  palette: ['functions', 'control', 'sensing', 'logic', 'normal', 'math', 'lists', 'visual', 'audio'],
+  palette: ['functions', 'control', 'sensing', 'logic', 'normal', 'math', 'lists', 'visual', 'audio', 'connectivity'],
 
   blocks: [
     {
@@ -1053,6 +1054,149 @@ window.BLOCK_PACK = {
       fields: {},
       slots: [],
       action: 'stopsounds'
+    },
+    {
+      type: 'wifi-connect',
+      category: 'connectivity',
+      label: 'Wi-Fi connect to',
+      sprite: 'assets/blocks/wifi-connect.svg',
+      width: 420,
+      height: 44,
+      fields: { ssid: 'network name', password: '', timeout: 15 },
+      slots: [
+        { field: 'ssid', type: 'text', x: 137, y: 8, w: 70, h: 22 },
+        { field: 'password', type: 'password', x: 224, y: 8, w: 76, h: 22 },
+        { field: 'timeout', type: 'value', x: 373, y: 8, w: 28, h: 22 }
+      ],
+      action: 'wifi-connect'
+    },
+    {
+      type: 'wifi-disconnect',
+      category: 'connectivity',
+      label: 'Wi-Fi disconnect',
+      sprite: 'assets/blocks/wifi-disconnect.svg',
+      width: 230,
+      height: 44,
+      fields: {},
+      slots: [],
+      action: 'wifi-disconnect'
+    },
+    {
+      type: 'wifi-connected',
+      category: 'connectivity',
+      label: 'Wi-Fi connected?',
+      sprite: 'assets/blocks/wifi-connected.svg',
+      width: 244,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'wifi-connected',
+      reporter: true
+    },
+    {
+      type: 'http-get',
+      category: 'connectivity',
+      label: 'HTTP GET',
+      sprite: 'assets/blocks/http-get.svg',
+      width: 370,
+      height: 44,
+      fields: { url: 'https://example.com' },
+      slots: [
+        { field: 'url', type: 'text', x: 123, y: 8, w: 230, h: 22 }
+      ],
+      action: 'http-get'
+    },
+    {
+      type: 'http-post',
+      category: 'connectivity',
+      label: 'HTTP POST',
+      sprite: 'assets/blocks/http-post.svg',
+      width: 430,
+      height: 44,
+      fields: { url: 'https://example.com', body: '' },
+      slots: [
+        { field: 'url', type: 'text', x: 130, y: 8, w: 175, h: 22 },
+        { field: 'body', type: 'text', x: 328, y: 8, w: 82, h: 22 }
+      ],
+      action: 'http-post'
+    },
+    {
+      type: 'ble-scan',
+      category: 'connectivity',
+      label: 'BLE scan for',
+      sprite: 'assets/blocks/ble-scan.svg',
+      width: 280,
+      height: 44,
+      fields: { seconds: 5 },
+      slots: [
+        { field: 'seconds', type: 'value', x: 153, y: 8, w: 36, h: 22, suffix: 's', suffixWidth: 12, suffixColor: '#082f49' }
+      ],
+      action: 'ble-scan'
+    },
+    {
+      type: 'ble-connect',
+      category: 'connectivity',
+      label: 'BLE connect',
+      sprite: 'assets/blocks/ble-connect.svg',
+      width: 370,
+      height: 44,
+      fields: { address: 'AA:BB:CC:DD:EE:FF' },
+      slots: [
+        { field: 'address', type: 'text', x: 134, y: 8, w: 220, h: 22 }
+      ],
+      action: 'ble-connect'
+    },
+    {
+      type: 'ble-disconnect',
+      category: 'connectivity',
+      label: 'BLE disconnect',
+      sprite: 'assets/blocks/ble-disconnect.svg',
+      width: 230,
+      height: 44,
+      fields: {},
+      slots: [],
+      action: 'ble-disconnect'
+    },
+    {
+      type: 'ble-connected',
+      category: 'connectivity',
+      label: 'BLE connected?',
+      sprite: 'assets/blocks/ble-connected.svg',
+      width: 240,
+      height: 36,
+      fields: {},
+      slots: [],
+      action: 'ble-connected',
+      reporter: true
+    },
+    {
+      type: 'ble-gatt-read',
+      category: 'connectivity',
+      label: 'BLE read',
+      sprite: 'assets/blocks/ble-gatt-read.svg',
+      width: 390,
+      height: 44,
+      fields: { service: '180F', characteristic: '2A19' },
+      slots: [
+        { field: 'service', type: 'text', x: 120, y: 8, w: 104, h: 22 },
+        { field: 'characteristic', type: 'text', x: 270, y: 8, w: 108, h: 22 }
+      ],
+      action: 'ble-gatt-read'
+    },
+    {
+      type: 'ble-gatt-write',
+      category: 'connectivity',
+      label: 'BLE write',
+      sprite: 'assets/blocks/ble-gatt-write.svg',
+      width: 500,
+      height: 44,
+      fields: { service: '180F', characteristic: '2A19', value: '1' },
+      slots: [
+        { field: 'service', type: 'text', x: 120, y: 8, w: 94, h: 22 },
+        { field: 'characteristic', type: 'text', x: 255, y: 8, w: 94, h: 22 },
+        { field: 'value', type: 'text', x: 391, y: 8, w: 92, h: 22 }
+      ],
+      action: 'ble-gatt-write'
     }
   ],
 

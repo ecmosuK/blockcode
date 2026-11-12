@@ -6,9 +6,10 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack": "electron-builder --dir",
-    "dist": "node desktop/build-installer.cjs",
-    "release": "electron-builder --win nsis --publish never"
+    "pack": "node desktop/prepare-eim-cli.cjs && electron-builder --dir",
+    "prepare:eim": "node desktop/prepare-eim-cli.cjs",
+    "dist": "node desktop/prepare-eim-cli.cjs && node desktop/build-installer.cjs",
+    "release": "node desktop/prepare-eim-cli.cjs && electron-builder --win nsis --publish never"
   },
   "devDependencies": {
     "electron": "^45.2.1",
@@ -28,6 +29,14 @@
       {
         "from": "tools/build-service.py",
         "to": "blockcode-build-service/tools/build-service.py"
+      },
+      {
+        "from": "tools/eim-cli.exe",
+        "to": "blockcode-build-service/eim-cli.exe"
+      },
+      {
+        "from": "tools/toolchain-manifest.json",
+        "to": "toolchain-manifest.json"
       },
       {
         "from": "watch-elf-app",
@@ -63,6 +72,8 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
+      "include": "desktop/installer.nsh",
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true

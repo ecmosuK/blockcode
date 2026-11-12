@@ -139,7 +139,7 @@ function blockTextWidth(text, font) {
 }
 
 function blockSlotContentWidth(block, slot) {
-  if (slot.type === 'text') {
+  if (slot.type === 'text' || slot.type === 'password') {
     const def = DEFS[block.type];
     const text = block.params[slot.field] == null
       ? (def.fields && def.fields[slot.field]) || ''
@@ -298,7 +298,7 @@ function renderSelectSlot(block, slot, palette) {
 function renderTextSlot(block, slot, palette) {
   const input = document.createElement('input');
   input.className = 'block-slot text';
-  input.type = 'text';
+  input.type = slot.type === 'password' ? 'password' : 'text';
   applySlotGeometry(input, slot);
   input.value = block.params[slot.field] != null ? block.params[slot.field] : '';
   input.setAttribute('aria-label', slot.label || slot.field || 'value');
@@ -543,7 +543,7 @@ function renderBlock(block, path, opts) {
         slot.type === 'function' || slot.type === 'signal' || slot.type === 'operator' ||
         slot.type === 'variable' || slot.type === 'list') {
       control = renderSelectSlot(block, slot, palette);
-    } else if (slot.type === 'text') {
+    } else if (slot.type === 'text' || slot.type === 'password') {
       control = renderTextSlot(block, slot, palette);
     } else {
       control = renderValueSlot(block, slot, palette);

@@ -2775,6 +2775,27 @@ body.is-resizing {
   animation: build-progress 1.15s ease-in-out infinite;
 }
 
+.build-notice-progress.is-determinate span {
+  width: var(--build-progress, 0%);
+  animation: none;
+  transition: width .2s ease;
+}
+
+.build-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.build-notice-actions[hidden] {
+  display: none;
+}
+
+.build-notice-actions .btn[hidden] {
+  display: none;
+}
+
 @keyframes build-progress {
   from { transform: translateX(-110%); }
   to { transform: translateX(280%); }

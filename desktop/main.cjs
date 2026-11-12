@@ -1,10 +1,10 @@
 const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn } = require('node:child_process');
-const crypto = require('node:crypto');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const { ToolchainManager, killProcessTree } = require('./toolchain.cjs');
 
 app.setName('BlockCode');
 
@@ -30,6 +30,18 @@ let updateAvailable = false;
 let updateDownloaded = false;
 
 const MAX_PROJECT_BYTES = 64 * 1024 * 1024;
+
+const toolchainManifestPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'toolchain-manifest.json')
+  : path.join(appRoot, 'tools', 'toolchain-manifest.json');
+const toolchainResourcesRoot = app.isPackaged ? process.resourcesPath : appRoot;
+
+const toolchain = new ToolchainManager({
+  resourcesRoot: toolchainResourcesRoot,
+  appRoot,
+  manifestPath: toolchainManifestPath,
+  onStatus: publishToolchainStatus
+});
 
 function isAppFrame(event) {
   return event.senderFrame === event.sender.mainFrame &&
@@ -94,88 +106,9 @@ function publishBuildServiceStatus(message) {
   }
 }
 
-function runSetupProcess(executable, args, options = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-      cwd: options.cwd,
-      env: options.env || process.env,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    let output = '';
-    let pending = '';
-    const collect = (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      pending += text;
-      const lines = pending.split(/\r?\n/);
-      pending = lines.pop() || '';
-      lines.forEach((line) => {
-        const message = line.trim();
-        if (message) publishBuildServiceStatus(message.slice(-240));
-      });
-    };
-    child.stdout.on('data', collect);
-    child.stderr.on('data', collect);
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (pending.trim()) publishBuildServiceStatus(pending.trim().slice(-240));
-      if (code === 0) resolve(output);
-      else reject(new Error(output.trim().slice(-6000) || `${path.basename(executable)} exited with code ${code}.`));
-    });
-  });
-}
-
-async function downloadEimCli(destination) {
-  publishBuildServiceStatus('Downloading Espressif’s installer…');
-  const releaseResponse = await fetch('https://api.github.com/repos/espressif/idf-im-ui/releases/latest', {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'BlockCode' }
-  });
-  if (!releaseResponse.ok) {
-    throw new Error(`Could not check for the Espressif installer (HTTP ${releaseResponse.status}).`);
-  }
-  const release = await releaseResponse.json();
-  const asset = (release.assets || []).find((item) => item.name === 'eim-cli-windows-x64.exe');
-  if (!asset || typeof asset.digest !== 'string' || !asset.digest.startsWith('sha256:')) {
-    throw new Error('The Espressif installer release did not include a verifiable Windows CLI.');
-  }
-  const installerResponse = await fetch(asset.browser_download_url);
-  if (!installerResponse.ok) {
-    throw new Error(`Could not download the Espressif installer (HTTP ${installerResponse.status}).`);
-  }
-  const installer = Buffer.from(await installerResponse.arrayBuffer());
-  const digest = crypto.createHash('sha256').update(installer).digest('hex');
-  if (digest !== asset.digest.slice('sha256:'.length)) {
-    throw new Error('The downloaded Espressif installer failed its SHA-256 integrity check.');
-  }
-  await fs.promises.mkdir(path.dirname(destination), { recursive: true });
-  await fs.promises.writeFile(destination + '.tmp', installer);
-  await fs.promises.rename(destination + '.tmp', destination);
-}
-
-async function installEspIdf(installRoot, toolsPath, idfPath) {
-  const installerPath = path.join(installRoot, 'tools', 'eim-cli.exe');
-  await fs.promises.mkdir(toolsPath, { recursive: true });
-  if (!fs.existsSync(installerPath)) await downloadEimCli(installerPath);
-  publishBuildServiceStatus('Installing ESP-IDF 6.1 and the ESP32-S3 build tools. This first setup can take a while…');
-  const result = await runSetupProcess(installerPath, [
-    '--do-not-track', 'true',
-    '--esp-idf-json-path', toolsPath,
-    'install',
-    '--path', installRoot,
-    '--idf-versions', 'v6.1',
-    '--target', 'esp32s3',
-    '--install-all-prerequisites', 'true',
-    '--cleanup', 'true'
-  ], {
-    cwd: installRoot,
-    env: { ...process.env, ESP_PATH: installRoot }
-  });
-  if (!fs.existsSync(path.join(idfPath, 'tools', 'idf.py'))) {
-    throw new Error(
-      'Espressif’s installer completed but the ESP-IDF files were not found where expected: ' +
-      idfPath + (result ? '\n\n' + result.slice(-2000) : '')
-    );
+function publishToolchainStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('toolchain-status', status);
   }
 }
 
@@ -213,45 +146,68 @@ function readIdfEnvironment(idfPath, toolsPath, pythonEnvPath) {
   return { python, env: { ...process.env, ...idfEnv } };
 }
 
+function managedRoot() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(app.getPath('home'), 'AppData', 'Local');
+  return path.join(localAppData, 'BlockCode');
+}
+
 async function buildServicePaths() {
   const root = app.isPackaged
     ? path.join(process.resourcesPath, 'blockcode-build-service')
     : appRoot;
-  const installRoot = path.join(app.getPath('documents'), 'BlockCode');
-  const defaultIdfPath = path.join(installRoot, 'v6.1', 'esp-idf');
-  const legacyIdfPath = 'C:\\esp\\v6.1\\esp-idf';
-  const hasDefaultIdf = fs.existsSync(path.join(defaultIdfPath, 'tools', 'idf.py'));
-  const hasLegacyIdf = fs.existsSync(path.join(legacyIdfPath, 'tools', 'idf.py'));
-  const idfPath = process.env.IDF_PATH || (hasDefaultIdf ? defaultIdfPath : (hasLegacyIdf ? legacyIdfPath : defaultIdfPath));
-  const toolsPath = process.env.IDF_TOOLS_PATH ||
-    (idfPath === legacyIdfPath || process.env.IDF_PATH ? 'C:\\Espressif' : path.join(installRoot, 'tools'));
   const script = path.join(root, 'tools', 'build-service.py');
-  const idfScript = path.join(idfPath, 'tools', 'idf.py');
   if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'watch-elf-app'))) {
     throw new Error('The bundled watch build files are missing. Reinstall BlockCode.');
   }
-  if (!fs.existsSync(idfScript)) {
-    if (process.env.IDF_PATH) {
+
+  if (process.env.IDF_PATH) {
+    const idfPath = process.env.IDF_PATH;
+    const toolsPath = process.env.IDF_TOOLS_PATH || 'C:\\Espressif';
+    const pythonEnvPath = process.env.IDF_PYTHON_ENV_PATH || null;
+    if (!fs.existsSync(path.join(idfPath, 'tools', 'idf.py'))) {
       throw new Error(`The configured ESP-IDF installation was not found: ${idfPath}`);
     }
-    await fs.promises.mkdir(installRoot, { recursive: true });
-    await installEspIdf(installRoot, toolsPath, defaultIdfPath);
+    const idfEnvironment = readIdfEnvironment(idfPath, toolsPath, pythonEnvPath);
+    return {
+      python: idfEnvironment.python,
+      script,
+      env: {
+        ...idfEnvironment.env,
+        IDF_PATH: idfPath,
+        IDF_TOOLS_PATH: toolsPath,
+        IDF_PYTHON_ENV_PATH: idfEnvironment.env.IDF_PYTHON_ENV_PATH,
+        ESP_IDF_VERSION: process.env.ESP_IDF_VERSION || idfEnvironment.env.ESP_IDF_VERSION || '6.1',
+        PYTHONUTF8: '1',
+        IDF_CCACHE_ENABLE: '1',
+        BLOCKCODE_BUILD_CACHE: process.env.BLOCKCODE_BUILD_CACHE ||
+          path.join(managedRoot(), 'build-cache', 'dev')
+      }
+    };
   }
 
-  const pythonEnvPath = process.env.IDF_PYTHON_ENV_PATH || null;
-  const idfEnvironment = readIdfEnvironment(idfPath, toolsPath, pythonEnvPath);
+  let environment;
+  try {
+    environment = await toolchain.ensure({ reason: 'build' });
+  } catch (error) {
+    if (error && error.cancelled) {
+      throw new Error(
+        'The watch build tools are not set up yet. Finish the watch build tools setup, then build again.'
+      );
+    }
+    throw new Error(
+      `The watch build tools are not ready.\n\n${error.message || error}\n\n` +
+      'Use Retry setup or Repair build tools to finish the setup.'
+    );
+  }
+
+  const buildEnvironment = toolchain.getBuildEnvironment(environment);
   return {
-    python: idfEnvironment.python,
+    python: buildEnvironment.python,
     script,
     env: {
-      ...idfEnvironment.env,
-      IDF_PATH: idfPath,
-      IDF_TOOLS_PATH: toolsPath,
-      IDF_PYTHON_ENV_PATH: idfEnvironment.env.IDF_PYTHON_ENV_PATH,
-      ESP_IDF_VERSION: process.env.ESP_IDF_VERSION || idfEnvironment.env.ESP_IDF_VERSION || '6.1',
-      PYTHONUTF8: '1',
-      IDF_CCACHE_ENABLE: '1',
-      BLOCKCODE_BUILD_CACHE: process.env.BLOCKCODE_BUILD_CACHE || path.join(installRoot, 'build-cache')
+      ...buildEnvironment.env,
+      BLOCKCODE_BUILD_CACHE: process.env.BLOCKCODE_BUILD_CACHE ||
+        path.join(toolchain.getPaths().managedRoot, 'build-cache', environment.toolchainId)
     }
   };
 }
@@ -304,7 +260,7 @@ async function startBuildService() {
     while (Date.now() < deadline) {
       if (await buildServiceIsReady()) return;
       if (spawnError) {
-        throw new Error(`Could not launch ESP-IDF Python: ${spawnError.message}`);
+        throw new Error(`Could not launch the watch build service: ${spawnError.message}`);
       }
       if (child.exitCode !== null || child.signalCode !== null) {
         const detail = startupOutput || fs.readFileSync(logPath, 'utf8').slice(-2000);
@@ -312,7 +268,7 @@ async function startBuildService() {
           throw new Error('Port 8765 is in use by another app. Close it and retry.');
         }
         throw new Error(
-          'Could not start the watch build service. Check ESP-IDF 6.1 setup and ' +
+          'Could not start the watch build service. Check the watch build tools setup and ' +
           `${logPath}${detail ? `\n\n${detail}` : ''}`
         );
       }
@@ -324,9 +280,33 @@ async function startBuildService() {
   }
 }
 
+function stopBuildService() {
+  const child = buildServiceProcess;
+  buildServiceProcess = null;
+  buildServiceStarting = null;
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, 5000);
+    child.once('exit', finish);
+    killProcessTree(child);
+  });
+}
+
 ipcMain.handle('ensure-build-service', async (event) => {
   if (!isAppFrame(event)) {
     throw new Error('The build service can only be started by the BlockCode app.');
+  }
+  if (!process.env.IDF_PATH) {
+    await toolchain.ensure({ reason: 'build', quiet: true });
   }
   if (!buildServiceStarting) {
     buildServiceStarting = startBuildService().finally(() => {
@@ -336,6 +316,37 @@ ipcMain.handle('ensure-build-service', async (event) => {
   await buildServiceStarting;
   publishBuildServiceStatus('');
   return true;
+});
+
+ipcMain.handle('get-toolchain-status', (event) => {
+  if (!isAppFrame(event)) throw new Error('Build tool status is only available to BlockCode.');
+  return toolchain.getStatus();
+});
+
+ipcMain.handle('retry-toolchain-setup', async (event) => {
+  if (!isAppFrame(event)) throw new Error('Build tools can only be set up by BlockCode.');
+  try {
+    await toolchain.retry();
+  } catch {
+    /* the failure is already published as a toolchain status */
+  }
+  return toolchain.getStatus();
+});
+
+ipcMain.handle('repair-toolchain', async (event) => {
+  if (!isAppFrame(event)) throw new Error('Build tools can only be repaired by BlockCode.');
+  await stopBuildService();
+  try {
+    await toolchain.repair();
+  } catch {
+    /* the failure is already published as a toolchain status */
+  }
+  return toolchain.getStatus();
+});
+
+ipcMain.handle('cancel-toolchain-setup', (event) => {
+  if (!isAppFrame(event)) throw new Error('Build tools can only be managed by BlockCode.');
+  return toolchain.cancel();
 });
 
 ipcMain.handle('new-project', (event) => {
@@ -413,9 +424,12 @@ function configureAutoUpdater() {
     updateAvailable = true;
     publishUpdateState('available', { version: info.version });
   });
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
     updateAvailable = false;
-    publishUpdateState('not-available');
+    publishUpdateState('not-available', {
+      currentVersion: app.getVersion(),
+      version: info.version
+    });
   });
   autoUpdater.on('download-progress', (progress) => {
     publishUpdateState('downloading', { percent: Math.floor(progress.percent) });
@@ -510,6 +524,11 @@ async function createWindow() {
 app.whenReady().then(async () => {
   configureAutoUpdater();
   await createWindow();
+  if (!process.env.IDF_PATH && (app.isPackaged || process.env.BLOCKCODE_TOOLCHAIN_AUTO_SETUP === '1')) {
+    toolchain.ensure({ reason: 'startup', quiet: true }).catch(() => {
+      /* failures are published through the toolchain status channel */
+    });
+  }
   if (app.isPackaged) {
     autoUpdater.checkForUpdates().catch((error) => {
       publishUpdateState('error', { message: error.message || 'Update check failed.' });
@@ -523,7 +542,8 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   if (server) server.close();
-  if (buildServiceProcess && !buildServiceProcess.killed) buildServiceProcess.kill();
+  if (buildServiceProcess) killProcessTree(buildServiceProcess);
+  toolchain.cancel();
 });
 
 app.on('window-all-closed', () => {

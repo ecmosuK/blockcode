@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="44" viewBox="0 0 280 44" fill="none">
+  <path d="M4 0H16V1Q16 6 19 6H33Q36 6 36 1V0H276Q280 0 280 4V34Q280 38 276 38H4Q0 38 0 34V4Q0 0 4 0Z" fill="#0ea5e9"/>
+  <rect x="0" y="36" width="280" height="2" fill="#0782bd"/><path d="M16 34H36V39Q36 44 33 44H19Q16 44 16 39V34Z" fill="#0ea5e9"/>
+  <g transform="translate(17 9)" fill="none" stroke="#082f49" stroke-width="2.4" stroke-linejoin="round"><path d="M12 1V24L20 17L5 7L20 17L12 24"/></g>
+  <text x="45" y="25" fill="#082f49" font-family="sans-serif" font-size="14" font-weight="600">BLE scan for</text>
+  <rect x="153" y="8" width="36" height="22" rx="11" fill="white" fill-opacity=".95"/>
+  <text x="196" y="25" fill="#082f49" font-family="sans-serif" font-size="14" font-weight="600">seconds</text>
+</svg>

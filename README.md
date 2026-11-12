@@ -24,16 +24,31 @@ npm start
 ```
 
 To create a Windows installer, run `npm run dist`. The installer is written to
-`Downloads/BlockCode Setup 1.0.0.exe`; it creates Start menu and desktop shortcuts.
-The installer includes the watch build script and firmware project. The first
-time you build or upload a watch app, BlockCode installs ESP-IDF 6.1 and its
-ESP32-S3 tools under `%USERPROFILE%\Documents\BlockCode`; this download can take
-a while and requires an internet connection and several gigabytes of free space.
-BlockCode starts its local build service automatically, and uploads directly over
-USB without requiring a separate Quantum OS checkout. Override `IDF_PATH`,
-`IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` before launching BlockCode to use an
-existing ESP-IDF installation instead. Build-service startup details are saved
-to `%APPDATA%\BlockCode\logs\build-service.log`.
+`Downloads/blockcode setup.exe`; it creates Start menu and desktop shortcuts.
+The installer includes the watch build script, firmware project, and a pinned copy
+of Espressif's installation manager, but it does **not** download the multi-gigabyte
+toolchain during installation.
+
+On first launch, BlockCode automatically downloads the pinned ESP-IDF 6.1 and
+ESP32-S3 build tools, verifies the archive's SHA-256, and installs them under
+`%LOCALAPPDATA%\BlockCode\toolchains\esp-idf-6.1-esp32s3`. Setup runs in the
+background with progress, cancel, retry, and repair controls, so the editor stays
+usable while it runs. It requires an internet connection and roughly 15 GB of free
+disk space. App updates reuse the installed toolchain without downloading it again.
+BlockCode then starts its local build service automatically and uploads directly
+over USB without requiring a separate Quantum OS checkout.
+
+Setup details are saved to `%LOCALAPPDATA%\BlockCode\toolchain.log`; build-service
+startup details are saved to `%APPDATA%\BlockCode\logs\build-service.log`.
+Override `IDF_PATH`, `IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` before launching
+BlockCode to use an existing ESP-IDF installation instead. For development or
+air-gapped machines, set `BLOCKCODE_TOOLCHAIN_ARCHIVE` to a local offline `.zst`
+archive. Set `BLOCKCODE_TOOLCHAIN_AUTO_SETUP=1` when running from a source checkout
+to start setup immediately instead of waiting for the first build.
+
+When developing from a source checkout, start
+`tools/start-build-service.ps1` in its configured ESP-IDF environment before
+launching the desktop app, or let BlockCode provision its managed toolchain.
 
 Use **New**, **Open**, **Save**, and **Save As** in the top toolbar to manage
 `.blockcode` project files. Projects include scripts for every sprite, custom

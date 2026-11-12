@@ -1,0 +1,97 @@
+name: Build watch toolchain archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag that receives the toolchain archive
+        required: true
+        default: toolchain-esp-idf-6.1-esp32s3-v1
+      idf_version:
+        description: ESP-IDF version to package
+        required: true
+        default: v6.1
+      target:
+        description: ESP-IDF target to package
+        required: true
+        default: esp32s3
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8
+
+      - name: Download pinned offline installer builder
+        shell: pwsh
+        run: |
+          $url = "https://github.com/espressif/idf-im-ui/releases/download/v0.20.1/offline_installer_builder-windows-x64-v0.20.1.exe"
+          $expected = "65307bc0469cb2f8aa1dae844b07f8bf9084a9d51d4a2202b8b670355c90fd2f"
+          Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile offline_installer_builder.exe
+          $actual = (Get-FileHash offline_installer_builder.exe -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "offline_installer_builder hash mismatch: $actual" }
+
+      - name: Build esp32s3-only offline archive
+        id: build
+        shell: pwsh
+        run: |
+          @"
+          idf_versions = ["${{ inputs.idf_version }}"]
+          target = ["${{ inputs.target }}"]
+          "# | Set-Content -Path blockcode-toolchain.toml -Encoding utf8
+          ./offline_installer_builder.exe -c blockcode-toolchain.toml
+          $archive = Get-ChildItem -Filter "archive_*.zst" | Select-Object -First 1
+          if (-not $archive) { throw "The offline installer builder did not produce a .zst archive." }
+          $name = "blockcode-esp-idf-6.1-esp32s3-win64.zst"
+          Move-Item $archive.FullName $name
+          $size = (Get-Item $name).Length
+          $sha256 = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          Write-Output "archive_size=$size" >> $env:GITHUB_OUTPUT
+          Write-Output "archive_sha256=$sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Write pinned toolchain manifest
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.release_tag }}"
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/blockcode-esp-idf-6.1-esp32s3-win64.zst"
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            toolchainId = "esp-idf-6.1-esp32s3"
+            toolchainVersion = "6.1-esp32s3-1"
+            idfVersion = "6.1"
+            target = "esp32s3"
+            archive = [ordered]@{
+              url = $url
+              size = [int64]"${{ steps.build.outputs.archive_size }}"
+              sha256 = "${{ steps.build.outputs.archive_sha256 }}"
+              format = "zst"
+            }
+            eim = [ordered]@{
+              version = "0.20.1"
+              url = "https://github.com/espressif/idf-im-ui/releases/download/v0.20.1/eim-cli-windows-x64.exe"
+              size = 23138104
+              sha256 = "ed5130ed1d88f4f567c08847f76090b27f528cf3ec580cfcaf5888a63c074d2b"
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path toolchain-manifest.json -Encoding utf8
+
+      - name: Publish toolchain release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Watch toolchain ESP-IDF ${{ inputs.idf_version }} (${{ inputs.target }})
+          body: |
+            Pinned ESP-IDF ${{ inputs.idf_version }} build toolchain for BlockCode watch builds.
+
+            This release contains the ESP32-S3-only offline archive used by the
+            BlockCode first-launch setup and the matching `toolchain-manifest.json`.
+          files: |
+            blockcode-esp-idf-6.1-esp32s3-win64.zst
+            toolchain-manifest.json
+          fail_on_unmatched_files: true

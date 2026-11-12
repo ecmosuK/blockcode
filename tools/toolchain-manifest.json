@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "toolchainId": "esp-idf-6.1-esp32s3",
+  "toolchainVersion": "6.1-esp32s3-1",
+  "idfVersion": "6.1",
+  "target": "esp32s3",
+  "archive": {
+    "url": "https://dl.espressif.com/dl/eim/archive_v6.1_windows-x64.zst",
+    "size": 3449598715,
+    "sha256": "05d43d80b7b1b59a6109e91e25009cef335cbb8ad24d69f0ef9e7ddccedd4c6c",
+    "format": "zst"
+  },
+  "eim": {
+    "version": "0.20.1",
+    "url": "https://github.com/espressif/idf-im-ui/releases/download/v0.20.1/eim-cli-windows-x64.exe",
+    "size": 23138104,
+    "sha256": "ed5130ed1d88f4f567c08847f76090b27f528cf3ec580cfcaf5888a63c074d2b"
+  }
+}

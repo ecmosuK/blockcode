@@ -24,13 +24,17 @@ jobs:
           $version = $env:GITHUB_REF_NAME.Substring(1)
           npm version $version --no-git-tag-version
       - run: npm run release
-      - name: Match update metadata to installer asset
+      - name: Match update metadata to installer filename
         shell: pwsh
         run: |
           $metadataPath = Join-Path $PWD "dist/latest.yml"
+          $installers = @(Get-ChildItem dist -Filter "*.exe" -File)
+          if ($installers.Count -ne 1) { throw "Expected one Windows installer, found $($installers.Count)." }
+          $installerName = $installers[0].Name
           $metadata = Get-Content $metadataPath -Raw
-          $updatedMetadata = $metadata.Replace("blockcode-setup.exe", "blockcode setup.exe")
-          if ($updatedMetadata -eq $metadata) { throw "Could not find the installer path in latest.yml." }
+          $updatedMetadata = [regex]::Replace($metadata, '(?m)^(\s*-\s+url:\s*).+$', ('$1' + $installerName))
+          $updatedMetadata = [regex]::Replace($updatedMetadata, '(?m)^path:\s*.+$', ('path: ' + $installerName))
+          if ($updatedMetadata -eq $metadata) { throw "Could not match the installer path in latest.yml." }
           [IO.File]::WriteAllText($metadataPath, $updatedMetadata, [Text.UTF8Encoding]::new($false))
       - name: Publish GitHub release
         shell: pwsh
