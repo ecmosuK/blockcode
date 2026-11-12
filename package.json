@@ -1,6 +1,6 @@
 {
   "name": "blockcode-windows",
-  "version": "1.0.0",
+  "version": "1.0.7",
   "private": true,
   "description": "BlockCode visual coding playground for Windows",
   "main": "desktop/main.cjs",
