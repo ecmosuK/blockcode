@@ -6,8 +6,8 @@
   "target": "esp32s3",
   "archive": {
     "url": "https://dl.espressif.com/dl/eim/archive_v6.1_windows-x64.zst",
-    "size": 3449598715,
-    "sha256": "05d43d80b7b1b59a6109e91e25009cef335cbb8ad24d69f0ef9e7ddccedd4c6c",
+    "size": 3548481118,
+    "sha256": "cb42dcc58dc768ca2c8beb885e415bd16c09a020695f8dd30dfb6cd2563eefce",
     "format": "zst"
   },
   "eim": {

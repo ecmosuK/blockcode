@@ -484,6 +484,10 @@ function onPointerUp(event) {
   let changed = false;
 
   if (!d.moved && d.from) {
+    // The pointerup/click lands on the script wrapper because the source
+    // block is marked as dragging. Ignore that click so it cannot clear the
+    // selection we are making here.
+    suppressCanvasClickUntil = performance.now() + 250;
     const now = performance.now();
     const isDoubleClick = lastBlockClick &&
       lastBlockClick.id === d.block.id &&

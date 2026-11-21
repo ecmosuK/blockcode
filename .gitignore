@@ -1,6 +1,12 @@
 node_modules/
 dist*/
 Downloads/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+.claude/
 updated-installer-updater/
 watch-elf-app/build/
 tools/eim-cli.exe

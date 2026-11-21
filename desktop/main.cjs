@@ -1,10 +1,11 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+﻿const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { ToolchainManager, killProcessTree } = require('./toolchain.cjs');
+const { planBuildCacheRoot } = require('./build-cache-root');
 
 app.setName('BlockCode');
 
@@ -25,6 +26,8 @@ let buildServiceProcess;
 let buildServiceStarting;
 let appUrl;
 let currentProjectPath;
+let closePending = false;
+let closeApproved = false;
 let updateState = { status: 'idle' };
 let updateAvailable = false;
 let updateDownloaded = false;
@@ -151,6 +154,21 @@ function managedRoot() {
   return path.join(localAppData, 'BlockCode');
 }
 
+function buildCacheRoot(toolchainId) {
+  // BLOCKCODE_BUILD_CACHE always wins, e.g. for CI or a custom drive.
+  if (process.env.BLOCKCODE_BUILD_CACHE) return process.env.BLOCKCODE_BUILD_CACHE;
+  const plan = planBuildCacheRoot({ managedRoot: managedRoot(), toolchainId });
+  if (!plan.short) return plan.root;
+  // A long cache path overflows Windows' 260-character limit for deep ESP-IDF
+  // dependency files, so prefer the short drive-root cache when it is usable.
+  try {
+    fs.mkdirSync(plan.root, { recursive: true });
+    return plan.root;
+  } catch {
+    return plan.fallback;
+  }
+}
+
 async function buildServicePaths() {
   const root = app.isPackaged
     ? path.join(process.resourcesPath, 'blockcode-build-service')
@@ -160,7 +178,12 @@ async function buildServicePaths() {
     throw new Error('The bundled watch build files are missing. Reinstall BlockCode.');
   }
 
-  if (process.env.IDF_PATH) {
+  // Prefer the app-managed toolchain whenever it is ready. A stale system-wide
+  // IDF_PATH (e.g. a leftover ESP-IDF install) must not hijack the managed
+  // toolchain, which produced "cmake must be available on the PATH" failures.
+  // The explicit override is only honored as a fallback when the managed
+  // toolchain has not been installed yet.
+  if (process.env.IDF_PATH && !toolchain.isReady()) {
     const idfPath = process.env.IDF_PATH;
     const toolsPath = process.env.IDF_TOOLS_PATH || 'C:\\Espressif';
     const pythonEnvPath = process.env.IDF_PYTHON_ENV_PATH || null;
@@ -179,8 +202,7 @@ async function buildServicePaths() {
         ESP_IDF_VERSION: process.env.ESP_IDF_VERSION || idfEnvironment.env.ESP_IDF_VERSION || '6.1',
         PYTHONUTF8: '1',
         IDF_CCACHE_ENABLE: '1',
-        BLOCKCODE_BUILD_CACHE: process.env.BLOCKCODE_BUILD_CACHE ||
-          path.join(managedRoot(), 'build-cache', 'dev')
+        BLOCKCODE_BUILD_CACHE: buildCacheRoot('dev')
       }
     };
   }
@@ -206,8 +228,7 @@ async function buildServicePaths() {
     script,
     env: {
       ...buildEnvironment.env,
-      BLOCKCODE_BUILD_CACHE: process.env.BLOCKCODE_BUILD_CACHE ||
-        path.join(toolchain.getPaths().managedRoot, 'build-cache', environment.toolchainId)
+      BLOCKCODE_BUILD_CACHE: buildCacheRoot(environment.toolchainId)
     }
   };
 }
@@ -280,13 +301,12 @@ async function startBuildService() {
   }
 }
 
-function stopBuildService() {
-  const child = buildServiceProcess;
-  buildServiceProcess = null;
-  buildServiceStarting = null;
-  if (!child || child.exitCode !== null || child.signalCode !== null) {
-    return Promise.resolve();
-  }
+function killOrphanBuildServices() {
+  // The build service runs on the managed Python venv. If a previous app
+  // session left it running (or the tracked child was lost), its python.exe is
+  // locked and toolchain repair/reinstall fails with EPERM. Kill any process
+  // still running build-service.py, not just the one we track in memory.
+  if (process.platform !== 'win32') return Promise.resolve();
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
@@ -295,19 +315,51 @@ function stopBuildService() {
       clearTimeout(timer);
       resolve();
     };
-    const timer = setTimeout(finish, 5000);
-    child.once('exit', finish);
-    killProcessTree(child);
+    const script =
+      "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | " +
+      "Where-Object { $_.CommandLine -like '*build-service.py*' } | " +
+      "ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }";
+    let child;
+    const timer = setTimeout(finish, 8000);
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      child.once('error', finish);
+      child.once('exit', finish);
+    } catch {
+      finish();
+    }
   });
+}
+
+async function stopBuildService() {
+  const child = buildServiceProcess;
+  buildServiceProcess = null;
+  buildServiceStarting = null;
+  if (child && child.exitCode === null && child.signalCode === null) {
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(finish, 5000);
+      child.once('exit', finish);
+      killProcessTree(child);
+    });
+  }
+  await killOrphanBuildServices();
 }
 
 ipcMain.handle('ensure-build-service', async (event) => {
   if (!isAppFrame(event)) {
     throw new Error('The build service can only be started by the BlockCode app.');
   }
-  if (!process.env.IDF_PATH) {
-    await toolchain.ensure({ reason: 'build', quiet: true });
-  }
+  await toolchain.ensure({ reason: 'build', quiet: true });
   if (!buildServiceStarting) {
     buildServiceStarting = startBuildService().finally(() => {
       buildServiceStarting = null;
@@ -325,6 +377,7 @@ ipcMain.handle('get-toolchain-status', (event) => {
 
 ipcMain.handle('retry-toolchain-setup', async (event) => {
   if (!isAppFrame(event)) throw new Error('Build tools can only be set up by BlockCode.');
+  await stopBuildService();
   try {
     await toolchain.retry();
   } catch {
@@ -409,6 +462,16 @@ ipcMain.handle('save-project', async (event, contents, saveAs) => {
   return { saved: true };
 });
 
+ipcMain.handle('resolve-app-close', (event, close) => {
+  if (!isAppFrame(event)) throw new Error('The app window can only be closed by BlockCode.');
+  closePending = false;
+  if (close) {
+    closeApproved = true;
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  }
+  return true;
+});
+
 function publishUpdateState(status, details = {}) {
   updateState = { status, ...details };
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -483,6 +546,8 @@ ipcMain.handle('install-update', (event) => {
 });
 
 async function createWindow() {
+  closeApproved = false;
+  closePending = false;
   appUrl = await startStaticServer();
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -502,6 +567,16 @@ async function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== appUrl && !url.startsWith(appUrl)) event.preventDefault();
+  });
+
+  mainWindow.on('close', (event) => {
+    if (closeApproved) return;
+    event.preventDefault();
+    if (closePending) return;
+    closePending = true;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app-close-requested');
+    }
   });
 
   mainWindow.webContents.session.on('will-download', (event, item) => {
@@ -524,7 +599,7 @@ async function createWindow() {
 app.whenReady().then(async () => {
   configureAutoUpdater();
   await createWindow();
-  if (!process.env.IDF_PATH && (app.isPackaged || process.env.BLOCKCODE_TOOLCHAIN_AUTO_SETUP === '1')) {
+  if (app.isPackaged || process.env.BLOCKCODE_TOOLCHAIN_AUTO_SETUP === '1') {
     toolchain.ensure({ reason: 'startup', quiet: true }).catch(() => {
       /* failures are published through the toolchain status channel */
     });
@@ -540,7 +615,7 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-app.on('before-quit', () => {
+app.on('will-quit', () => {
   if (server) server.close();
   if (buildServiceProcess) killProcessTree(buildServiceProcess);
   toolchain.cancel();

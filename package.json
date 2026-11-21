@@ -9,11 +9,20 @@
     "pack": "node desktop/prepare-eim-cli.cjs && electron-builder --dir",
     "prepare:eim": "node desktop/prepare-eim-cli.cjs",
     "dist": "node desktop/prepare-eim-cli.cjs && node desktop/build-installer.cjs",
-    "release": "node desktop/prepare-eim-cli.cjs && electron-builder --win nsis --publish never"
+    "release": "node desktop/prepare-eim-cli.cjs && electron-builder --win nsis --publish never",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.6",
     "electron": "^45.2.1",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.15"
   },
   "build": {
     "appId": "com.blockcode.desktop",

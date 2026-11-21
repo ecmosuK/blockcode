@@ -8,6 +8,11 @@ const fsp = fs.promises;
 const os = require('node:os');
 const path = require('node:path');
 const { Readable } = require('node:stream');
+const {
+  DOWNLOAD_ACTIONS,
+  buildRangeHeader,
+  planToolchainDownload
+} = require('./toolchain-download');
 
 const TOOLCHAIN_ID = 'esp-idf-6.1-esp32s3';
 const IDF_VERSION = '6.1';
@@ -52,16 +57,22 @@ async function removeFile(filePath) {
 async function removeTree(target) {
   if (!fs.existsSync(target)) return;
   let lastError;
-  for (let attempt = 0; attempt < 6; attempt += 1) {
+  for (let attempt = 0; attempt < 15; attempt += 1) {
     try {
       await fsp.rm(target, { recursive: true, force: true });
       return;
     } catch (error) {
       lastError = error;
-      await delay(300);
+      // Back off progressively: antivirus scanners and a just-terminated
+      // Python/build-service process can hold file handles briefly on Windows.
+      await delay(Math.min(1000, 150 * (attempt + 1)));
     }
   }
-  throw lastError;
+  const detail = lastError && lastError.message ? lastError.message : String(lastError);
+  throw new Error(
+    `The watch build tools could not be removed because a file is in use (${detail}). ` +
+    'Close any running build, then choose Retry setup or Repair build tools.'
+  );
 }
 
 function safeReaddir(directory) {
@@ -114,6 +125,36 @@ async function hashFile(filePath) {
     return { sha256: hash.digest('hex'), size: position };
   } finally {
     await handle.close();
+  }
+}
+
+async function hashExistingBytes(hash, filePath, limit) {
+  const handle = await fsp.open(filePath, 'r');
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (position < limit) {
+      const toRead = Math.min(buffer.length, limit - position);
+      const { bytesRead } = await handle.read(buffer, 0, toRead, position);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      position += bytesRead;
+    }
+    return position;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function getRemoteFileSize(url, signal) {
+  try {
+    const response = await net.fetch(url, { method: 'HEAD', signal, redirect: 'follow' });
+    if (!response.ok) return null;
+    const length = Number(response.headers.get('content-length'));
+    return Number.isFinite(length) && length > 0 ? length : null;
+  } catch {
+    // A failed preflight must not prevent setup; fall back to the pinned size.
+    return null;
   }
 }
 
@@ -497,7 +538,10 @@ class ToolchainManager {
       const environment = await this.resolveAndValidate(pinned);
       writeJsonAtomic(this.environmentPath, environment);
 
-      if (archive.downloaded && process.env.BLOCKCODE_KEEP_TOOLCHAIN_ARCHIVE !== '1') {
+      // Keep the verified archive by default so retries and repairs can reuse
+      // it instead of re-downloading multiple gigabytes. Set
+      // BLOCKCODE_DELETE_TOOLCHAIN_ARCHIVE=1 to reclaim the disk space.
+      if (archive.downloaded && process.env.BLOCKCODE_DELETE_TOOLCHAIN_ARCHIVE === '1') {
         await removeFile(archive.path);
       }
 
@@ -565,28 +609,72 @@ class ToolchainManager {
     fs.mkdirSync(this.downloadRoot, { recursive: true });
     const archiveName = path.basename(new URL(pinned.archive.url).pathname) || `${TOOLCHAIN_ID}.zst`;
     const destination = path.join(this.downloadRoot, archiveName);
+    const partPath = `${destination}.part`;
 
+    // Inspect what is already on disk. A completed archive is only hashed when
+    // its size looks right; a `.part` file is never hashed because it is partial.
+    let localSize = null;
+    let localSha256 = null;
     if (fs.existsSync(destination)) {
       const stats = await fsp.stat(destination);
-      const sizeMatches = !pinned.archive.size || stats.size === Number(pinned.archive.size);
-      if (sizeMatches) {
+      localSize = stats.size;
+      const expectedSize = Number(pinned.archive.size) || null;
+      if (!expectedSize || stats.size === expectedSize) {
         this.setStatus({ phase: 'verifying', message: 'Verifying the downloaded toolchain…', percent: null });
         const info = await hashFile(destination);
-        const hashMatches = !pinned.archive.sha256 || info.sha256 === String(pinned.archive.sha256).toLowerCase();
-        if (hashMatches) {
-          return { path: destination, sha256: info.sha256, downloaded: false };
-        }
+        localSize = info.size;
+        localSha256 = info.sha256;
       }
-      await removeFile(destination);
     }
 
-    this.checkDiskSpace(pinned.archive.size);
+    let partialSize = null;
+    if (fs.existsSync(partPath)) {
+      try {
+        partialSize = (await fsp.stat(partPath)).size;
+      } catch {
+        partialSize = null;
+      }
+    }
+
+    const signal = this.abortController ? this.abortController.signal : undefined;
+    const remoteSize = await getRemoteFileSize(pinned.archive.url, signal);
+    if (this.cancelled) throw abortError();
+
+    const plan = planToolchainDownload({
+      url: pinned.archive.url,
+      expectedSize: pinned.archive.size,
+      expectedSha256: pinned.archive.sha256,
+      localSize,
+      localSha256,
+      partialSize,
+      remoteSize
+    });
+
+    // Refuse to transfer gigabytes that can never pass the pinned size/hash
+    // gate. The bundled manifest is stale and must be regenerated.
+    if (plan.action === DOWNLOAD_ACTIONS.REJECT) {
+      throw new Error(plan.message || 'The bundled watch toolchain manifest is out of date.');
+    }
+
+    if (plan.action === DOWNLOAD_ACTIONS.REUSE) {
+      return { path: destination, sha256: localSha256, downloaded: false };
+    }
+
+    // Drop an unusable completed file. Keep a `.part` only when resuming it.
+    if (fs.existsSync(destination)) await removeFile(destination);
+    if (plan.action === DOWNLOAD_ACTIONS.DOWNLOAD && fs.existsSync(partPath)) {
+      await removeFile(partPath);
+    }
+
+    const expectedSize = plan.totalBytes || pinned.archive.size;
+    this.checkDiskSpace(expectedSize);
     const info = await this.downloadFile({
       url: pinned.archive.url,
       destination,
-      expectedSize: pinned.archive.size,
+      expectedSize,
       expectedSha256: pinned.archive.sha256,
-      label: 'ESP-IDF 6.1 and ESP32-S3 tools'
+      label: 'ESP-IDF 6.1 and ESP32-S3 tools',
+      resumeFrom: plan.action === DOWNLOAD_ACTIONS.RESUME ? plan.startByte : 0
     });
     return { path: destination, sha256: info.sha256, downloaded: true };
   }
@@ -641,18 +729,36 @@ class ToolchainManager {
     return destination;
   }
 
-  async downloadFile({ url, destination, expectedSize, expectedSha256, label }) {
+  async downloadFile({ url, destination, expectedSize, expectedSha256, label, resumeFrom = 0 }) {
     const partPath = `${destination}.part`;
-    await removeFile(partPath);
+    const expected = Number(expectedSize) || 0;
+
+    let startByte = Math.max(0, Number(resumeFrom) || 0);
+    if (startByte > 0) {
+      let partSize = null;
+      try {
+        partSize = (await fsp.stat(partPath)).size;
+      } catch {
+        partSize = null;
+      }
+      // Only resume when the file on disk actually holds the expected prefix.
+      if (partSize === null || partSize < startByte) startByte = 0;
+    } else {
+      await removeFile(partPath);
+    }
 
     const signal = this.abortController ? this.abortController.signal : undefined;
-    const total = Number(expectedSize) || 0;
+    const range = buildRangeHeader(startByte);
+    const headers = range ? { Range: range } : undefined;
+
     this.setStatus({
       phase: 'downloading',
-      message: `Downloading ${label}…`,
-      percent: 0,
-      bytesReceived: 0,
-      bytesTotal: total || null,
+      message: startByte > 0
+        ? `Resuming the download of ${label} from ${formatBytes(startByte)}…`
+        : `Downloading ${label}…`,
+      percent: startByte > 0 && expected ? Math.min(99, Math.floor((startByte / expected) * 100)) : 0,
+      bytesReceived: startByte,
+      bytesTotal: expected || null,
       canCancel: true,
       canRetry: false,
       error: null
@@ -660,20 +766,40 @@ class ToolchainManager {
 
     let response;
     try {
-      response = await net.fetch(url, { signal, redirect: 'follow' });
+      response = await net.fetch(url, { signal, redirect: 'follow', headers });
     } catch (error) {
       if (this.cancelled || isAbortError(error)) throw abortError();
       throw new Error(`Could not download ${label}: ${error.message || error}`);
     }
+
+    if (range && response.status === 416) {
+      // The server rejected our resume offset; drop the unusable partial file.
+      await removeFile(partPath);
+      throw new Error(
+        `The download of ${label} could not be resumed. Choose Retry setup to download it again.`
+      );
+    }
+
+    // Some servers ignore Range and reply 200 with the whole body. In that case
+    // fall back to a clean download instead of appending duplicate bytes.
+    if (range && response.status === 200) {
+      startByte = 0;
+    }
+
     if (!response.ok || !response.body) {
       throw new Error(`Could not download ${label}: the server returned HTTP ${response.status}.`);
     }
 
-    const contentLength = Number(response.headers.get('content-length')) || total;
+    const contentLength = Number(response.headers.get('content-length')) || (expected ? expected - startByte : 0);
+    const totalBytes = expected || (startByte + contentLength);
     const hash = crypto.createHash('sha256');
-    let received = 0;
+    let position = startByte;
+    if (startByte > 0) {
+      await hashExistingBytes(hash, partPath, startByte);
+    }
+
     let lastUpdate = 0;
-    const handle = await fsp.open(partPath, 'w');
+    const handle = await fsp.open(partPath, startByte > 0 ? 'a' : 'w');
 
     try {
       for await (const chunk of Readable.fromWeb(response.body)) {
@@ -685,27 +811,29 @@ class ToolchainManager {
           const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset);
           offset += bytesWritten;
         }
-        received += buffer.length;
+        position += buffer.length;
 
         const now = Date.now();
         if (now - lastUpdate > 200) {
           lastUpdate = now;
-          const percent = contentLength
-            ? Math.min(99, Math.floor((received / contentLength) * 100))
+          const percent = totalBytes
+            ? Math.min(99, Math.floor((position / totalBytes) * 100))
             : null;
           this.setStatus({
             phase: 'downloading',
-            message: `Downloading ${label}… ${formatBytes(received)}` +
-              (contentLength ? ` of ${formatBytes(contentLength)}` : ''),
+            message: (startByte > 0 ? 'Resuming ' : 'Downloading ') + `${label}… ` +
+              `${formatBytes(position)}` +
+              (totalBytes ? ` of ${formatBytes(totalBytes)}` : ''),
             percent,
-            bytesReceived: received,
-            bytesTotal: contentLength || null
+            bytesReceived: position,
+            bytesTotal: totalBytes || null
           });
         }
       }
     } catch (error) {
       await handle.close().catch(() => {});
-      await removeFile(partPath);
+      // Keep the partial file so the next attempt can resume instead of
+      // restarting a multi-gigabyte transfer from byte zero.
       if (this.cancelled || isAbortError(error)) throw abortError();
       throw new Error(`The download of ${label} failed: ${error.message || error}`);
     }
@@ -713,14 +841,15 @@ class ToolchainManager {
     await handle.close();
     const sha256 = hash.digest('hex');
 
-    if (expectedSize && received !== Number(expectedSize)) {
-      await removeFile(partPath);
+    if (expected && position !== expected) {
+      // Leave the partial file in place for a resumable retry.
       throw new Error(
-        `The download of ${label} is incomplete (${formatBytes(received)} of ${formatBytes(expectedSize)}). ` +
-        'Check your internet connection and choose Retry setup.'
+        `The download of ${label} is incomplete (${formatBytes(position)} of ${formatBytes(expected)}). ` +
+        'Check your internet connection and choose Retry setup to resume it.'
       );
     }
     if (expectedSha256 && sha256 !== String(expectedSha256).toLowerCase()) {
+      // A resumed file that fails the hash is corrupt; discard it.
       await removeFile(partPath);
       throw new Error(`The downloaded ${label} archive failed its integrity check. Choose Retry setup.`);
     }
@@ -730,10 +859,10 @@ class ToolchainManager {
       phase: 'verifying',
       message: `Verified ${label}.`,
       percent: 100,
-      bytesReceived: received,
-      bytesTotal: contentLength || received
+      bytesReceived: position,
+      bytesTotal: totalBytes || position
     });
-    return { sha256, size: received };
+    return { sha256, size: position };
   }
 
   async installArchive(pinned, archive, eimCli) {

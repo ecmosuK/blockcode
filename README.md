@@ -46,17 +46,28 @@ ESP32-S3 build tools, verifies the archive's SHA-256, and installs them under
 `%LOCALAPPDATA%\BlockCode\toolchains\esp-idf-6.1-esp32s3`. Setup runs in the
 background with progress, cancel, retry, and repair controls, so the editor stays
 usable while it runs. It requires an internet connection and roughly 15 GB of free
-disk space. App updates reuse the installed toolchain without downloading it again.
-BlockCode then starts its local build service automatically and uploads directly
-over USB without requiring a separate Quantum OS checkout.
+disk space. App updates reuse the installed toolchain without downloading it again,
+and the verified archive is kept so retries and repairs resume instead of
+re-downloading it. BlockCode refuses to start a download when the bundled manifest
+no longer matches the server (rather than transferring gigabytes that cannot pass
+verification). BlockCode then starts its local build service automatically and
+uploads directly over USB without requiring a separate Quantum OS checkout.
 
 Setup details are saved to `%LOCALAPPDATA%\BlockCode\toolchain.log`; build-service
 startup details are saved to `%APPDATA%\BlockCode\logs\build-service.log`.
 Override `IDF_PATH`, `IDF_TOOLS_PATH`, and `IDF_PYTHON_ENV_PATH` before launching
-BlockCode to use an existing ESP-IDF installation instead. For development or
+BlockCode to use an existing ESP-IDF installation instead. These overrides are a
+fallback: once BlockCode's managed toolchain is installed, it takes precedence so a
+stale system-wide `IDF_PATH` cannot break builds. For development or
 air-gapped machines, set `BLOCKCODE_TOOLCHAIN_ARCHIVE` to a local offline `.zst`
-archive. Set `BLOCKCODE_TOOLCHAIN_AUTO_SETUP=1` when running from a source checkout
+archive. Set `BLOCKCODE_DELETE_TOOLCHAIN_ARCHIVE=1` to delete the cached archive
+after a successful install and reclaim its disk space. Set
+`BLOCKCODE_TOOLCHAIN_AUTO_SETUP=1` when running from a source checkout
 to start setup immediately instead of waiting for the first build.
+
+Build artifacts are kept under a short `C:\bc\<toolchain-id>` cache on Windows so
+deep ESP-IDF dependency paths stay under the 260-character limit (unless
+`LongPathsEnabled` is on). Set `BLOCKCODE_BUILD_CACHE` to override that location.
 
 When developing from a source checkout, start
 `tools/start-build-service.ps1` in its configured ESP-IDF environment before

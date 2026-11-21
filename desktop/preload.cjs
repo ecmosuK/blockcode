@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld('blockCodeDesktop', {
   openProject: () => ipcRenderer.invoke('open-project'),
   saveProject: (contents, saveAs) =>
     ipcRenderer.invoke('save-project', contents, Boolean(saveAs)),
+  onCloseRequested: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('app-close-requested', listener);
+    return () => ipcRenderer.removeListener('app-close-requested', listener);
+  },
+  resolveClose: (close) => ipcRenderer.invoke('resolve-app-close', Boolean(close)),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),

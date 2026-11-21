@@ -5,7 +5,8 @@ let workspace = [];
 
 const PROJECT_FORMAT = 'blockcode-project';
 const PROJECT_VERSION = 1;
-const SHOW_EDITOR_AFTER_RELOAD_KEY = 'blockcode.show-editor-after-project-load';
+const PROJECT_SESSION_KEY = 'blockcode.project-session-started';
+const PROJECT_HAS_FILE_KEY = 'blockcode.project-has-file';
 const PROJECT_STORAGE_KEYS = [
   ASSETS_KEY,
   SPRITE_WORKSPACES_KEY,
@@ -14,6 +15,9 @@ const PROJECT_STORAGE_KEYS = [
   VISIBLE_VARIABLES_KEY,
   VISIBLE_LISTS_KEY
 ];
+
+let projectHasFile = false;
+let savedProjectSnapshot = null;
 
 function createProjectFile() {
   saveSpriteWorkspaces();
@@ -86,6 +90,45 @@ function emptyProjectData() {
   };
 }
 
+/**
+ * The app no longer has a start page. A fresh launch begins on a blank
+ * project, while reloads that happen after Open / New keep the loaded data.
+ */
+function beginNewProjectSession() {
+  let started = false;
+  try {
+    started = sessionStorage.getItem(PROJECT_SESSION_KEY) === 'true';
+  } catch (error) {
+    /* sessionStorage may be unavailable in private modes */
+  }
+  if (started) return;
+
+  const data = emptyProjectData();
+  PROJECT_STORAGE_KEYS.forEach((key) => {
+    try {
+      localStorage.setItem(key, data[key]);
+    } catch (error) {
+      /* ignore storage failures during boot; the editor still loads */
+    }
+  });
+  try {
+    sessionStorage.setItem(PROJECT_SESSION_KEY, 'true');
+    sessionStorage.removeItem(PROJECT_HAS_FILE_KEY);
+  } catch (error) {
+    /* sessionStorage may be unavailable in private modes */
+  }
+}
+
+function setProjectHasFile(hasFile) {
+  projectHasFile = Boolean(hasFile);
+  try {
+    if (projectHasFile) sessionStorage.setItem(PROJECT_HAS_FILE_KEY, 'true');
+    else sessionStorage.removeItem(PROJECT_HAS_FILE_KEY);
+  } catch (error) {
+    /* sessionStorage may be unavailable in private modes */
+  }
+}
+
 function installProjectData(data) {
   const previous = {};
   PROJECT_STORAGE_KEYS.forEach((key) => {
@@ -100,17 +143,84 @@ function installProjectData(data) {
     });
     throw new Error('Could not load this project. It may contain more data than local storage can hold.');
   }
-  sessionStorage.setItem(SHOW_EDITOR_AFTER_RELOAD_KEY, 'true');
   location.reload();
 }
 
-async function openProjectFile(confirmBeforeOpen) {
+function projectNeedsSaving() {
+  return !projectHasFile || savedProjectSnapshot === null ||
+    createProjectFile() !== savedProjectSnapshot;
+}
+
+function askToSaveProject(action) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'save-project-dialog';
+
+    const form = document.createElement('form');
+    form.className = 'save-project-form';
+
+    const title = document.createElement('h2');
+    title.textContent = 'Save this project?';
+
+    const description = document.createElement('p');
+    description.textContent = projectHasFile
+      ? 'You have unsaved changes. Save them before ' + action + '?'
+      : 'This project has not been saved to a file yet. Save it before ' + action + '?';
+
+    const actions = document.createElement('div');
+    actions.className = 'save-project-actions';
+
+    const makeButton = (label, className, result) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = className;
+      button.textContent = label;
+      button.addEventListener('click', () => dialog.close(result));
+      return button;
+    };
+
+    const cancelButton = makeButton('Cancel', 'btn btn-ghost', 'cancel');
+    const discardButton = makeButton('Don\'t save', 'btn btn-ghost', 'discard');
+    const saveButton = makeButton('Save', 'btn btn-run', 'save');
+    actions.append(cancelButton, discardButton, saveButton);
+
+    form.append(title, description, actions);
+    dialog.appendChild(form);
+
+    dialog.addEventListener('cancel', (event) => {
+      event.preventDefault();
+      dialog.close('cancel');
+    });
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close('cancel');
+    });
+    dialog.addEventListener('close', () => {
+      const choice = dialog.returnValue || 'cancel';
+      dialog.remove();
+      resolve(choice);
+    }, { once: true });
+
+    document.body.appendChild(dialog);
+    dialog.showModal();
+    saveButton.focus();
+  });
+}
+
+async function prepareToLeaveProject(action) {
+  if (!projectNeedsSaving()) return true;
+  const choice = await askToSaveProject(action);
+  if (choice === 'cancel') return false;
+  if (choice === 'discard') return true;
+  return saveProjectFile(false);
+}
+
+async function openProjectFile() {
   try {
-    if (confirmBeforeOpen &&
-        !window.confirm('Open another project? Your current work is autosaved in BlockCode, but save a project file to keep a separate copy.')) return;
+    if (!(await prepareToLeaveProject('opening another project'))) return;
     if (window.blockCodeDesktop) {
       const project = await window.blockCodeDesktop.openProject();
       if (!project) return;
+      setProjectHasFile(true);
       installProjectData(parseProjectFile(project.contents));
       return;
     }
@@ -125,54 +235,63 @@ async function saveProjectFile(saveAs) {
     const contents = createProjectFile();
     if (window.blockCodeDesktop) {
       const result = await window.blockCodeDesktop.saveProject(contents, saveAs);
-      if (result) showToast('Project saved.');
-      return;
+      if (!result) return false;
+      showToast('Project saved.');
+    } else {
+      const blob = new Blob([contents], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'Untitled.blockcode';
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast('Project downloaded.');
     }
-    const blob = new Blob([contents], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'Untitled.blockcode';
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast('Project downloaded.');
+    savedProjectSnapshot = contents;
+    setProjectHasFile(true);
+    return true;
   } catch (error) {
     showToast(error.message || 'Could not save the project file.');
+    return false;
   }
 }
 
-function dismissWelcomeScreen() {
-  $('welcomeScreen').hidden = true;
-  document.querySelector('.app').inert = false;
-  document.querySelector('.app').removeAttribute('aria-hidden');
-  $('runBtn').focus();
-}
-
-async function createNewProject(confirmBeforeCreate) {
-  if (confirmBeforeCreate &&
-      !window.confirm('Create a new project? Save your current work first if you want to keep it.')) return;
+async function createNewProject() {
+  if (!(await prepareToLeaveProject('starting a new project'))) return;
   try {
     if (window.blockCodeDesktop) await window.blockCodeDesktop.newProject();
     stopProgram();
+    setProjectHasFile(false);
     installProjectData(emptyProjectData());
   } catch (error) {
     showToast(error.message || 'Could not create a new project.');
   }
 }
 
-function initWelcomeScreen() {
-  $('welcomeOpenProjectBtn').addEventListener('click', () => openProjectFile(false));
-  $('welcomeNewProjectBtn').addEventListener('click', () => createNewProject(false));
-  if (sessionStorage.getItem(SHOW_EDITOR_AFTER_RELOAD_KEY) === 'true') {
-    sessionStorage.removeItem(SHOW_EDITOR_AFTER_RELOAD_KEY);
-    dismissWelcomeScreen();
-  } else {
-    $('welcomeOpenProjectBtn').focus();
+function initProjectState() {
+  try {
+    projectHasFile = sessionStorage.getItem(PROJECT_HAS_FILE_KEY) === 'true';
+  } catch (error) {
+    projectHasFile = false;
   }
+  savedProjectSnapshot = createProjectFile();
+}
+
+function initCloseGuard() {
+  const desktop = window.blockCodeDesktop;
+  if (!desktop || !desktop.onCloseRequested) return;
+  desktop.onCloseRequested(async () => {
+    let canClose = false;
+    try {
+      canClose = await prepareToLeaveProject('closing BlockCode');
+    } finally {
+      await desktop.resolveClose(canClose);
+    }
+  });
 }
 
 function initProjectFiles() {
-  $('newProjectBtn').addEventListener('click', () => createNewProject(true));
+  $('newProjectBtn').addEventListener('click', createNewProject);
   $('openProjectBtn').addEventListener('click', openProjectFile);
   $('saveProjectBtn').addEventListener('click', () => saveProjectFile(false));
   $('saveProjectAsBtn').addEventListener('click', () => saveProjectFile(true));
@@ -181,13 +300,14 @@ function initProjectFiles() {
     event.target.value = '';
     if (!file) return;
     try {
-      installProjectData(parseProjectFile(await file.text()));
+      const project = parseProjectFile(await file.text());
+      setProjectHasFile(true);
+      installProjectData(project);
     } catch (error) {
       showToast(error.message || 'Could not open the project file.');
     }
   });
   document.addEventListener('keydown', (event) => {
-    if (!$('welcomeScreen').hidden) return;
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
     const target = event.target;
     if (target && target.closest &&
@@ -200,7 +320,7 @@ function initProjectFiles() {
       openProjectFile();
     } else if (event.key.toLowerCase() === 'n') {
       event.preventDefault();
-      $('newProjectBtn').click();
+      createNewProject();
     }
   });
 }
@@ -269,16 +389,8 @@ function initUpdater() {
   void desktop.checkForUpdates();
 }
 
-const initialScript = [
-  makeBlock('start'),
-  makeBlock('goto'),
-  makeBlock('move', { steps: 60 }),
-  makeBlock('turn', { deg: 90 }),
-  makeBlock('say', { text: 'Hello, NASA!', secs: 1.2 }),
-  makeBlock('wait', { secs: 0.4 })
-].filter(Boolean);
-
-workspace = initialScript.length ? [makeScript(initialScript, 24, 24)] : [];
+beginNewProjectSession();
+workspace = [];
 
 loadLayoutState();
 applyLayoutState();
@@ -296,5 +408,6 @@ initStageObserver();
 syncStageGeometry();
 initCodeDictionary();
 initProjectFiles();
-initWelcomeScreen();
+initProjectState();
+initCloseGuard();
 initUpdater();
