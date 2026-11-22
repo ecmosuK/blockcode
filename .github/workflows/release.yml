@@ -22,7 +22,12 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME.Substring(1)
-          npm version $version --no-git-tag-version
+          $current = node -p "require('./package.json').version"
+          if ($current -ne $version) {
+            npm version $version --no-git-tag-version
+          } else {
+            Write-Host "package.json is already at $version"
+          }
       - run: npm run release
       - name: Match update metadata to installer filename
         shell: pwsh
